@@ -1,0 +1,353 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { supabase } from "../../lib/supabase";
+
+export default function AdminPage() {
+  const [orders, setOrders] = useState<any[]>([]);
+  const [shippingOrders, setShippingOrders] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
+  const [search, setSearch] = useState("");
+const [statusFilter, setStatusFilter] = useState("all");
+  const [allowed, setAllowed] = useState(false);
+const [loading, setLoading] = useState(true);
+
+  const updateOrderStatus = async (id: string, status: string) => {
+  const { error } = await supabase
+    .from("cards")
+    .update({ status })
+    .eq("id", id);
+
+  if (error) {
+    alert(error.message);
+    return;
+  }
+
+  setOrders((current) =>
+    current.map((order) =>
+      order.id === id ? { ...order, status } : order
+    )
+  );
+};
+const updateTracking = async (id: string, tracking: string) => {
+  await supabase
+    .from("cards")
+    .update({ tracking_number: tracking })
+    .eq("id", id);
+
+  const order = orders.find((o) => o.id === id);
+
+  if (order && tracking.trim()) {
+    const { data: shipping } = await supabase
+      .from("shipping_addresses")
+      .select("email")
+      .eq("card_order_id", order.order_id)
+      .single();
+
+    if (shipping?.email) {
+      await fetch("/api/send-tracking-email", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: shipping.email,
+          orderId: order.order_id,
+          tracking,
+        }),
+      });
+    }
+  }
+
+  setOrders((current) =>
+    current.map((order) =>
+      order.id === id
+        ? { ...order, tracking_number: tracking }
+        : order
+    )
+  );
+};
+  useEffect(() => {
+    const loadOrders = async () => {
+      const { data: userData } = await supabase.auth.getUser();
+
+if (userData.user?.email !== "grove6027@gmail.com") {
+  setAllowed(false);
+  setLoading(false);
+  return;
+}
+
+setAllowed(true);
+      const { data } = await supabase
+        .from("cards")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      setOrders(data || []);
+      const { data: shippingData } = await supabase
+  .from("shipping_addresses")
+  .select("*")
+  .order("created_at", { ascending: false });
+
+setShippingOrders(shippingData || []);
+const { data: usersData } = await supabase
+  .from("profiles")
+  .select("*")
+  .order("created_at", { ascending: false });
+
+setUsers(usersData || []);
+
+setUsers(usersData || []);
+      setLoading(false);
+    };
+
+    loadOrders();
+  }, []);
+const filteredOrders = orders.filter((order) => {
+  const matchesSearch =
+    !search ||
+    order.order_id?.toLowerCase().includes(search.toLowerCase()) ||
+    order.wallet_address?.toLowerCase().includes(search.toLowerCase()) ||
+    order.telegram_code?.toLowerCase().includes(search.toLowerCase());
+
+  const matchesStatus =
+    statusFilter === "all" ||
+    order.status === statusFilter;
+
+  return matchesSearch && matchesStatus;
+});
+
+  if (loading) {
+  return <main className="min-h-screen bg-black p-6 text-white">Loading...</main>;
+}
+
+if (!allowed) {
+  return (
+    <main className="min-h-screen bg-black p-6 text-white">
+      Access denied. Admin only.
+    </main>
+  );
+}
+
+  return (
+    <main className="min-h-screen bg-black p-6 text-white">
+      <div className="mx-auto max-w-7xl">
+        <a href="/" className="text-sm text-yellow-300">
+          ← Back to Home
+        </a>
+
+        <h1 className="mt-6 text-5xl font-black">Admin Panel</h1>
+
+        <div className="mt-8 grid gap-4 md:grid-cols-7">
+          <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6">
+            <p className="text-zinc-400">Total Orders</p>
+            <p className="mt-2 text-4xl font-black">{orders.length}</p>
+          </div>
+
+          <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6">
+            <p className="text-zinc-400">Virtual</p>
+            <p className="mt-2 text-4xl font-black">
+              {orders.filter((o) => o.card_type === "virtual").length}
+            </p>
+          </div>
+
+          <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6">
+            <p className="text-zinc-400">Physical</p>
+            <p className="mt-2 text-4xl font-black">
+              {orders.filter((o) => o.card_type === "physical").length}
+            </p>
+          </div>
+          <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6">
+  <p className="text-zinc-400">Shipping Orders</p>
+  <p className="mt-2 text-4xl font-black">
+    {shippingOrders.length}
+  </p>
+</div>
+
+          <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6">
+            <p className="text-zinc-400">Free</p>
+            <p className="mt-2 text-4xl font-black">
+              {orders.filter((o) => o.card_type === "free").length}
+            </p>
+          </div>
+        </div>
+        <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6">
+  <p className="text-zinc-400">Shipped</p>
+  <p className="mt-2 text-4xl font-black">
+    {
+      orders.filter(
+        (o) => o.card_type === "physical" && o.status === "shipped"
+      ).length
+    }
+  </p>
+</div>
+<div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6">
+  <p className="text-zinc-400">Users</p>
+  <p className="mt-2 text-4xl font-black">
+    {users.length}
+  </p>
+</div>
+
+        <div className="mt-8 rounded-3xl border border-white/10 bg-white/[0.03] p-6">
+          <h2 className="mb-6 text-2xl font-black">All Orders</h2>
+
+          <div className="mb-6 flex flex-col gap-3 md:flex-row">
+  <input
+    type="text"
+    placeholder="Search Order ID, Wallet, Telegram..."
+    value={search}
+    onChange={(e) => setSearch(e.target.value)}
+    className="flex-1 rounded-xl border border-white/10 bg-black px-4 py-3 text-white"
+  />
+
+  <select
+    value={statusFilter}
+    onChange={(e) => setStatusFilter(e.target.value)}
+    className="rounded-xl border border-white/10 bg-black px-4 py-3 text-white"
+  >
+    <option value="all">All Statuses</option>
+    <option value="pending">Pending</option>
+    <option value="approved">Approved</option>
+    <option value="processing">Processing</option>
+    <option value="shipped">Shipped</option>
+    <option value="completed">Completed</option>
+    <option value="cancelled">Cancelled</option>
+  </select>
+</div>
+
+          <div className="space-y-4">
+            {filteredOrders.map((order) => (
+              <div
+                key={order.id}
+                className="rounded-2xl border border-white/10 bg-black/40 p-5"
+              >
+                <p className="font-bold text-yellow-300">{order.order_id}</p>
+                <p className="capitalize text-zinc-400">
+                  Type: {order.card_type}
+                </p>
+                <p className="capitalize text-zinc-500">
+                  Status: {order.status}
+                </p>
+                <select
+  value={order.status}
+  onChange={(e) => updateOrderStatus(order.id, e.target.value)}
+  className="mt-3 rounded-xl border border-white/10 bg-black px-4 py-2 text-white"
+>
+  <input
+  type="text"
+  placeholder="Tracking Number"
+  defaultValue={order.tracking_number || ""}
+  onBlur={(e) =>
+    updateTracking(order.id, e.target.value)
+  }
+  className="mt-3 w-full rounded-xl border border-white/10 bg-black px-4 py-2 text-white"
+/>
+  <option value="pending">Pending</option>
+  <option value="approved">Approved</option>
+  <option value="processing">Processing</option>
+  <option value="shipped">Shipped</option>
+  <option value="completed">Completed</option>
+  <option value="cancelled">Cancelled</option>
+</select>
+<input
+  type="text"
+  placeholder="Tracking Number"
+  value={order.tracking_number || ""}
+  onChange={(e) =>
+    setOrders((current) =>
+      current.map((o) =>
+        o.id === order.id
+          ? { ...o, tracking_number: e.target.value }
+          : o
+      )
+    )
+  }
+  onBlur={(e) =>
+    updateTracking(order.id, e.target.value)
+  }
+  className="mt-3 w-full rounded-xl border border-white/10 bg-black px-4 py-2 text-white"
+/>
+                <p className="break-all text-sm text-zinc-500">
+                  Wallet: {order.wallet_address}
+                </p>
+                <p className="font-mono text-sm text-cyan-400">
+                  Telegram: {order.telegram_code}
+                </p>
+                <p className="text-sm text-green-400">
+  Tracking: {order.tracking_number || "Not Assigned"}
+</p>
+               
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="mt-8 rounded-3xl border border-white/10 bg-white/[0.03] p-6">
+  <h2 className="mb-6 text-2xl font-black">
+    Physical Shipping Orders
+  </h2>
+
+  {shippingOrders.length === 0 ? (
+    <p className="text-zinc-500">No shipping orders found.</p>
+  ) : (
+    <div className="space-y-4">
+      {shippingOrders.map((item) => (
+        <div
+          key={item.id}
+          className="rounded-2xl border border-white/10 bg-black/40 p-5"
+        >
+          <p className="font-bold text-yellow-300">
+            {item.card_order_id}
+          </p>
+
+          <p>Name: {item.full_name}</p>
+
+          <p>Email: {item.email}</p>
+
+          <p>
+            Address: {item.shipping_address}
+          </p>
+
+          <p>
+            {item.city}, {item.country}
+          </p>
+        </div>
+      ))}
+    </div>
+  )}
+</div>
+<div className="mt-8 rounded-3xl border border-white/10 bg-white/[0.03] p-6">
+  <h2 className="mb-6 text-2xl font-black">
+    Registered Users
+  </h2>
+
+  {users.length === 0 ? (
+    <p className="text-zinc-500">
+      No users found.
+    </p>
+  ) : (
+    <div className="space-y-4">
+      {users.map((user) => (
+        <div
+          key={user.id}
+          className="rounded-2xl border border-white/10 bg-black/40 p-5"
+        >
+          <p className="font-bold text-yellow-300">
+            {user.full_name || "No Name"}
+          </p>
+
+          <p className="text-zinc-400">
+            {user.email || "No Email"}
+          </p>
+
+          <p className="break-all text-zinc-500">
+            Wallet: {user.wallet_address || "Not Connected"}
+          </p>
+        </div>
+      ))}
+    </div>
+  )}
+</div>
+      </div>
+    </main>
+  );
+}

@@ -35,6 +35,7 @@ const [orders, setOrders] = useState<any[]>([]);
 const [shippingAddress, setShippingAddress] = useState("");
 const [shippingCity, setShippingCity] = useState("");
 const [shippingCountry, setShippingCountry] = useState("");
+const [couponCode, setCouponCode] = useState("");
 
 const { address, isConnected } = useAccount();
 const { writeContractAsync } = useWriteContract();
@@ -201,7 +202,7 @@ if (selectedCard === "virtual") {
     address: contractAddress,
     abi: CELESTOR_CARD_ABI,
     functionName: "mintVirtual",
-    args: [""],
+    args: [couponCode],
     value: parseEther("0.001"),
   });
 }
@@ -211,7 +212,7 @@ if (selectedCard === "physical") {
     address: contractAddress,
     abi: CELESTOR_CARD_ABI,
     functionName: "mintPhysical",
-    args: [""],
+    args: [couponCode],
     value: parseEther("0.01"),
   });
 }
@@ -248,6 +249,7 @@ if (txHash && publicClient) {
     telegram_code: telegramCode,
     tx_hash: txHash,
     token_id: tokenId,
+    coupon_code: couponCode,
     status: "pending",
   });
 
@@ -719,10 +721,12 @@ return (
         )}
 
         <input
-          type="text"
-          placeholder="Coupon Code (Optional)"
-          className="w-full rounded-xl border border-white/10 bg-black px-4 py-3"
-        />
+  type="text"
+  placeholder="Coupon Code (Optional)"
+  value={couponCode}
+  onChange={(e) => setCouponCode(e.target.value)}
+  className="w-full rounded-xl border border-white/10 bg-black px-4 py-3"
+/>
 
         <button
   onClick={createOrder}

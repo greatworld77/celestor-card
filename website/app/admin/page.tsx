@@ -3,6 +3,9 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
 
+import { useWriteContract } from "wagmi";
+import { CELESTOR_CARD_ABI } from "../../lib/contracts/CelestorCardABI";
+
 export default function AdminPage() {
   const [orders, setOrders] = useState<any[]>([]);
   const [shippingOrders, setShippingOrders] = useState<any[]>([]);
@@ -11,6 +14,14 @@ export default function AdminPage() {
 const [statusFilter, setStatusFilter] = useState("all");
   const [allowed, setAllowed] = useState(false);
 const [loading, setLoading] = useState(true);
+const [couponInput, setCouponInput] = useState("");
+const [discountInput, setDiscountInput] = useState("");
+const [couponActive, setCouponActive] = useState(true);
+const { writeContractAsync } = useWriteContract();
+const [coupons, setCoupons] = useState<any[]>([]);
+
+const contractAddress =
+  process.env.NEXT_PUBLIC_CELESTOR_CARD_CONTRACT as `0x${string}`;
 
   const updateOrderStatus = async (id: string, status: string) => {
   const { error } = await supabase
@@ -67,6 +78,45 @@ const updateTracking = async (id: string, tracking: string) => {
     )
   );
 };
+
+const saveCoupon = async () => {
+  if (!couponInput || !discountInput) {
+    alert("Enter coupon code and discount.");
+    return;
+  }
+
+  const discountBps = Math.floor(Number(discountInput) * 100);
+
+  if (discountBps < 0 || discountBps > 10000) {
+    alert("Discount must be between 0 and 100.");
+    return;
+  }
+
+  await writeContractAsync({
+    address: contractAddress,
+    abi: CELESTOR_CARD_ABI,
+    functionName: "setCoupon",
+    args: [couponInput, BigInt(discountBps), couponActive],
+  });
+
+  await supabase.from("coupons").upsert({
+  code: couponInput,
+  discount_percent: Number(discountInput),
+  active: couponActive,
+});
+setCoupons((prev) => [
+  {
+    id: Date.now(),
+    code: couponInput,
+    discount_percent: Number(discountInput),
+    active: couponActive,
+  },
+  ...prev,
+]);
+
+  alert("Coupon updated successfully.");
+};
+
   useEffect(() => {
     const loadOrders = async () => {
       const { data: userData } = await supabase.auth.getUser();
@@ -98,6 +148,17 @@ const { data: usersData } = await supabase
 setUsers(usersData || []);
 
 setUsers(usersData || []);
+const loadCoupons = async () => {
+  const { data } = await supabase
+    .from("coupons")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  setCoupons(data || []);
+};
+
+loadCoupons();
+
       setLoading(false);
     };
 
@@ -137,6 +198,43 @@ if (!allowed) {
         </a>
 
         <h1 className="mt-6 text-5xl font-black">Admin Panel</h1>
+        <div className="mt-8 rounded-3xl border border-white/10 bg-white/[0.03] p-6">
+  <h2 className="mb-4 text-2xl font-black">Coupon Manager</h2>
+
+  <div className="grid gap-4 md:grid-cols-4">
+    <input
+      type="text"
+      placeholder="Coupon Code e.g. SAVE50"
+      value={couponInput}
+      onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
+      className="rounded-xl border border-white/10 bg-black px-4 py-3 text-white"
+    />
+
+    <input
+      type="number"
+      placeholder="Discount % e.g. 50"
+      value={discountInput}
+      onChange={(e) => setDiscountInput(e.target.value)}
+      className="rounded-xl border border-white/10 bg-black px-4 py-3 text-white"
+    />
+
+    <select
+      value={couponActive ? "active" : "inactive"}
+      onChange={(e) => setCouponActive(e.target.value === "active")}
+      className="rounded-xl border border-white/10 bg-black px-4 py-3 text-white"
+    >
+      <option value="active">Active</option>
+      <option value="inactive">Inactive</option>
+    </select>
+
+    <button
+      onClick={saveCoupon}
+      className="rounded-xl bg-yellow-400 px-4 py-3 font-black text-black"
+    >
+      Save Coupon
+    </button>
+  </div>
+</div>
 
         <div className="mt-8 grid gap-4 md:grid-cols-7">
           <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6">
@@ -170,6 +268,19 @@ if (!allowed) {
               {orders.filter((o) => o.card_type === "free").length}
             </p>
           </div>
+          <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6">
+  <p className="text-zinc-400">Telegram Verified</p>
+  <p className="mt-2 text-4xl font-black">
+    {orders.filter((o) => o.telegram_verified).length}
+  </p>
+</div>
+
+<div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6">
+  <p className="text-zinc-400">Coupons Used</p>
+  <p className="mt-2 text-4xl font-black">
+    {orders.filter((o) => o.coupon_code).length}
+  </p>
+</div>
         </div>
         <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6">
   <p className="text-zinc-400">Shipped</p>

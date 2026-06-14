@@ -2,12 +2,24 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
+import { parseEther, formatEther } from "viem";
+import { CELESTOR_VAULT_ABI } from "../../lib/contracts/CelestorVaultABI";
+import { useWriteContract, usePublicClient } from "wagmi";
 
 export default function Dashboard() {
   const [userName, setUserName] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [wallet, setWallet] = useState("");
   const [orders, setOrders] = useState<any[]>([]);
+  const [reloadAmount, setReloadAmount] = useState("");
+const [withdrawAmount, setWithdrawAmount] = useState("");
+const [selectedTokenId, setSelectedTokenId] = useState<number | null>(null);
+const [vaultBalances, setVaultBalances] = useState<Record<string, string>>({});
+  const { writeContractAsync } = useWriteContract();
+  const publicClient = usePublicClient();
+
+const vaultAddress =
+  process.env.NEXT_PUBLIC_CELESTOR_VAULT_CONTRACT as `0x${string}`;
 
   const total = orders.length;
   const virtual = orders.filter((o) => o.card_type === "virtual").length;
@@ -39,10 +51,58 @@ export default function Dashboard() {
         .order("created_at", { ascending: false });
 
       setOrders(cards || []);
+      if (cards && publicClient) {
+  const balances: Record<string, string> = {};
+
+  for (const order of cards) {
+    if (order.token_id && order.card_type !== "free") {
+      const balance = await publicClient.readContract({
+        address: vaultAddress,
+        abi: CELESTOR_VAULT_ABI,
+        functionName: "getCardBalance",
+        args: [BigInt(order.token_id)],
+      });
+
+      balances[String(order.token_id)] = formatEther(balance as bigint);
+    }
+  }
+
+  setVaultBalances(balances);
+}
     };
 
     loadDashboard();
   }, []);
+
+  const reloadCard = async () => {
+  if (!selectedTokenId) return;
+
+  await writeContractAsync({
+    address: vaultAddress,
+    abi: CELESTOR_VAULT_ABI,
+    functionName: "depositToCard",
+    args: [BigInt(selectedTokenId)],
+    value: parseEther(reloadAmount),
+  });
+
+  alert("Reload successful");
+};
+
+const withdrawCard = async () => {
+  if (!selectedTokenId) return;
+
+  await writeContractAsync({
+    address: vaultAddress,
+    abi: CELESTOR_VAULT_ABI,
+    functionName: "withdrawFromCard",
+    args: [
+      BigInt(selectedTokenId),
+      parseEther(withdrawAmount),
+    ],
+  });
+
+  alert("Withdrawal successful");
+};
 
   return (
     <main className="min-h-screen bg-black p-6 text-white">
@@ -125,7 +185,56 @@ export default function Dashboard() {
 {order.token_id && (
   <p className="text-cyan-400">
     NFT Token ID: #{order.token_id}
+    {order.token_id && order.card_type !== "free" && (
+  <p className="text-green-400">
+    Vault Balance: {vaultBalances[order.token_id] || "0"} ETH
   </p>
+)}
+  </p>
+)}
+
+{order.token_id && order.card_type !== "free" && (
+  <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.03] p-4">
+    <p className="mb-3 font-bold text-yellow-300">
+      Vault Controls
+    </p>
+
+    <input
+      type="number"
+      placeholder="Reload amount in ETH"
+      value={selectedTokenId === Number(order.token_id) ? reloadAmount : ""}
+      onChange={(e) => {
+        setSelectedTokenId(Number(order.token_id));
+        setReloadAmount(e.target.value);
+      }}
+      className="mb-3 w-full rounded-xl border border-white/10 bg-black px-4 py-3 text-white"
+    />
+
+    <button
+      onClick={reloadCard}
+      className="mb-3 w-full rounded-full bg-green-400 py-3 font-black text-black"
+    >
+      Reload Card
+    </button>
+
+    <input
+      type="number"
+      placeholder="Withdraw amount in ETH"
+      value={selectedTokenId === Number(order.token_id) ? withdrawAmount : ""}
+      onChange={(e) => {
+        setSelectedTokenId(Number(order.token_id));
+        setWithdrawAmount(e.target.value);
+      }}
+      className="mb-3 w-full rounded-xl border border-white/10 bg-black px-4 py-3 text-white"
+    />
+
+    <button
+      onClick={withdrawCard}
+      className="w-full rounded-full border border-white/20 py-3 font-black"
+    >
+      Withdraw
+    </button>
+  </div>
 )}
 
 {order.tx_hash && (

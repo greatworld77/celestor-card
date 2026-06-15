@@ -22,6 +22,8 @@ const [coupons, setCoupons] = useState<any[]>([]);
 
 const contractAddress =
   process.env.NEXT_PUBLIC_CELESTOR_CARD_CONTRACT as `0x${string}`;
+  const adminEmail =
+  process.env.NEXT_PUBLIC_ADMIN_EMAIL || "grove6027@gmail.com";
 
   const updateOrderStatus = async (id: string, status: string) => {
   const { error } = await supabase
@@ -41,14 +43,21 @@ const contractAddress =
   );
 };
 const updateTracking = async (id: string, tracking: string) => {
-  await supabase
+  const normalizedTracking = tracking.trim();
+
+  const { error } = await supabase
     .from("cards")
-    .update({ tracking_number: tracking })
+    .update({ tracking_number: normalizedTracking })
     .eq("id", id);
+
+  if (error) {
+    alert(error.message);
+    return;
+  }
 
   const order = orders.find((o) => o.id === id);
 
-  if (order && tracking.trim()) {
+  if (order && normalizedTracking) {
     const { data: shipping } = await supabase
       .from("shipping_addresses")
       .select("email")
@@ -64,7 +73,7 @@ const updateTracking = async (id: string, tracking: string) => {
         body: JSON.stringify({
           email: shipping.email,
           orderId: order.order_id,
-          tracking,
+          tracking: normalizedTracking,
         }),
       });
     }
@@ -73,10 +82,12 @@ const updateTracking = async (id: string, tracking: string) => {
   setOrders((current) =>
     current.map((order) =>
       order.id === id
-        ? { ...order, tracking_number: tracking }
+        ? { ...order, tracking_number: normalizedTracking }
         : order
     )
   );
+
+  alert("Tracking updated successfully.");
 };
 
 const saveCoupon = async () => {
@@ -121,7 +132,7 @@ setCoupons((prev) => [
     const loadOrders = async () => {
       const { data: userData } = await supabase.auth.getUser();
 
-if (userData.user?.email !== "grove6027@gmail.com") {
+if (userData.user?.email !== adminEmail) {
   setAllowed(false);
   setLoading(false);
   return;
@@ -339,45 +350,37 @@ if (!allowed) {
                 <p className="capitalize text-zinc-500">
                   Status: {order.status}
                 </p>
-                <select
-  value={order.status}
-  onChange={(e) => updateOrderStatus(order.id, e.target.value)}
-  className="mt-3 rounded-xl border border-white/10 bg-black px-4 py-2 text-white"
->
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+  <select
+    value={order.status}
+    onChange={(e) => updateOrderStatus(order.id, e.target.value)}
+    className="rounded-xl border border-white/10 bg-black px-4 py-2 text-white"
+  >
+    <option value="pending">Pending</option>
+    <option value="approved">Approved</option>
+    <option value="processing">Processing</option>
+    <option value="shipped">Shipped</option>
+    <option value="completed">Completed</option>
+    <option value="cancelled">Cancelled</option>
+  </select>
+
   <input
-  type="text"
-  placeholder="Tracking Number"
-  defaultValue={order.tracking_number || ""}
-  onBlur={(e) =>
-    updateTracking(order.id, e.target.value)
-  }
-  className="mt-3 w-full rounded-xl border border-white/10 bg-black px-4 py-2 text-white"
-/>
-  <option value="pending">Pending</option>
-  <option value="approved">Approved</option>
-  <option value="processing">Processing</option>
-  <option value="shipped">Shipped</option>
-  <option value="completed">Completed</option>
-  <option value="cancelled">Cancelled</option>
-</select>
-<input
-  type="text"
-  placeholder="Tracking Number"
-  value={order.tracking_number || ""}
-  onChange={(e) =>
-    setOrders((current) =>
-      current.map((o) =>
-        o.id === order.id
-          ? { ...o, tracking_number: e.target.value }
-          : o
+    type="text"
+    placeholder="Tracking Number"
+    value={order.tracking_number || ""}
+    onChange={(e) =>
+      setOrders((current) =>
+        current.map((o) =>
+          o.id === order.id
+            ? { ...o, tracking_number: e.target.value }
+            : o
+        )
       )
-    )
-  }
-  onBlur={(e) =>
-    updateTracking(order.id, e.target.value)
-  }
-  className="mt-3 w-full rounded-xl border border-white/10 bg-black px-4 py-2 text-white"
-/>
+    }
+    onBlur={(e) => updateTracking(order.id, e.target.value)}
+    className="rounded-xl border border-white/10 bg-black px-4 py-2 text-white"
+  />
+</div>
                 <p className="break-all text-sm text-zinc-500">
                   Wallet: {order.wallet_address}
                 </p>

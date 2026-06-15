@@ -88,6 +88,23 @@ const [shippingAddress, setShippingAddress] = useState("");
 const [shippingCity, setShippingCity] = useState("");
 const [shippingCountry, setShippingCountry] = useState("");
 const [couponCode, setCouponCode] = useState("");
+const [notice, setNotice] = useState<{
+  type: "success" | "error" | "info";
+  message: string;
+} | null>(null);
+
+const [orderSuccess, setOrderSuccess] = useState<{
+  orderId: string;
+  telegramCode: string;
+  cardType: string;
+} | null>(null);
+
+const showNotice = (
+  message: string,
+  type: "success" | "error" | "info" = "info"
+) => {
+  setNotice({ type, message });
+};
 
 const { address, isConnected } = useAccount();
 const { writeContractAsync } = useWriteContract();
@@ -184,19 +201,19 @@ const createOrder = async () => {
   if (!selectedCard || isCreatingOrder) return;
 
   if (!userEmail) {
-    alert("Please login first.");
-    setAuthOpen(true);
+    showNotice("Please login first.", "error");
+setAuthOpen(true);
     return;
   }
 
   if (!address) {
-    alert("Please connect your wallet first.");
+    showNotice("Please connect your wallet first.", "error");
     return;
   }
 
   if (selectedCard === "physical") {
     if (!orderFullName.trim()) {
-      alert("Please enter the recipient full name.");
+      showNotice("Please enter the recipient full name.", "error");
       return;
     }
 
@@ -205,7 +222,7 @@ const createOrder = async () => {
       !shippingCity.trim() ||
       !shippingCountry.trim()
     ) {
-      alert("Please complete the shipping address, city, and country.");
+      showNotice("Please complete the shipping address, city, and country.", "error");
       return;
     }
   }
@@ -216,7 +233,7 @@ const createOrder = async () => {
     const { data: userData } = await supabase.auth.getUser();
 
     if (!userData.user) {
-      alert("User not found.");
+      showNotice("User not found. Please login again.", "error");
       return;
     }
 
@@ -229,7 +246,7 @@ const createOrder = async () => {
         .limit(1);
 
       if (existingFreeMint && existingFreeMint.length > 0) {
-        alert("This wallet has already claimed the Free NFT Card.");
+        showNotice("This wallet has already claimed the Free NFT Card.", "error");
         return;
       }
     }
@@ -242,7 +259,7 @@ const createOrder = async () => {
         .eq("card_type", "virtual");
 
       if ((count ?? 0) >= 5) {
-        alert("Maximum 5 Virtual Cards per wallet.");
+        showNotice("Maximum 5 Virtual Cards per wallet.", "error");
         return;
       }
     }
@@ -255,7 +272,7 @@ const createOrder = async () => {
         .eq("card_type", "physical");
 
       if ((count ?? 0) >= 10) {
-        alert("Maximum 10 Physical Cards per wallet.");
+        showNotice("Maximum 10 Physical Cards per wallet.", "error");
         return;
       }
     }
@@ -372,9 +389,13 @@ if (!emailResponse.ok) {
   console.error("Order email failed:", await emailResponse.text());
 }
 
-    alert(
-      `Order created successfully!\n\nOrder ID: ${orderId}\nTelegram Code: ${telegramCode}`
-    );
+    setOrderSuccess({
+  orderId,
+  telegramCode,
+  cardType: selectedCard,
+});
+
+showNotice("Order created successfully.", "success");
 
     setSelectedCard(null);
     setShippingAddress("");
@@ -389,7 +410,7 @@ if (!emailResponse.ok) {
         ? error.message
         : "Something went wrong while creating your order.";
 
-    alert(message);
+    showNotice(message, "error");
   } finally {
     setIsCreatingOrder(false);
   }
@@ -400,6 +421,38 @@ return (
 
 
     <main className="min-h-screen overflow-hidden text-white">
+    {notice && (
+  <div className="fixed right-4 top-24 z-[80] w-[calc(100%-2rem)] max-w-md rounded-2xl border border-white/10 bg-zinc-950 p-4 shadow-2xl">
+    <div className="flex items-start justify-between gap-4">
+      <div>
+        <p
+          className={`text-sm font-bold uppercase tracking-[0.25em] ${
+            notice.type === "success"
+              ? "text-green-300"
+              : notice.type === "error"
+              ? "text-red-300"
+              : "text-yellow-300"
+          }`}
+        >
+          {notice.type}
+        </p>
+
+        <p className="mt-2 text-sm leading-6 text-zinc-200">
+          {notice.message}
+        </p>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => setNotice(null)}
+        className="rounded-full border border-white/10 px-3 py-1 text-sm text-zinc-400 hover:text-white"
+      >
+        ×
+      </button>
+    </div>
+  </div>
+)}
+
       <nav className="fixed top-0 z-50 w-full border-b border-white/10 bg-black/50 backdrop-blur-2xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
           <a href="#home" className="text-2xl font-black tracking-[0.25em]">
@@ -1019,6 +1072,79 @@ if (error) {
           </p>
         )}
       </form>
+    </div>
+  </div>
+)}
+
+{orderSuccess && (
+  <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 px-6 backdrop-blur-xl">
+    <div className="w-full max-w-lg rounded-3xl border border-white/10 bg-zinc-950 p-8 shadow-2xl">
+      <p className="text-sm font-bold uppercase tracking-[0.3em] text-green-300">
+        Order Created
+      </p>
+
+      <h2 className="mt-4 text-3xl font-black">
+        Your Celestor order is confirmed
+      </h2>
+
+      <p className="mt-3 text-zinc-400">
+        Save these details. They were also sent to your email.
+      </p>
+
+      <div className="mt-6 space-y-4 rounded-2xl border border-white/10 bg-black p-5">
+        <div>
+          <p className="text-xs uppercase tracking-[0.25em] text-zinc-500">
+            Card Type
+          </p>
+          <p className="mt-1 capitalize text-white">
+            {orderSuccess.cardType}
+          </p>
+        </div>
+
+        <div>
+          <p className="text-xs uppercase tracking-[0.25em] text-zinc-500">
+            Order ID
+          </p>
+          <p className="mt-1 font-mono text-yellow-300">
+            {orderSuccess.orderId}
+          </p>
+        </div>
+
+        <div>
+          <p className="text-xs uppercase tracking-[0.25em] text-zinc-500">
+            Telegram Access Code
+          </p>
+          <p className="mt-1 font-mono text-cyan-300">
+            {orderSuccess.telegramCode}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-6 grid gap-3 md:grid-cols-2">
+        <a
+          href="https://t.me/CelestorCardbot"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="rounded-full bg-yellow-300 px-5 py-3 text-center font-black text-black"
+        >
+          Open Telegram
+        </a>
+
+        <a
+          href="/dashboard"
+          className="rounded-full border border-white/20 px-5 py-3 text-center font-black text-white"
+        >
+          Open Dashboard
+        </a>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => setOrderSuccess(null)}
+        className="mt-4 w-full rounded-full bg-white/10 px-5 py-3 font-bold text-white hover:bg-white/15"
+      >
+        Close
+      </button>
     </div>
   </div>
 )}

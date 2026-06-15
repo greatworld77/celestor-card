@@ -553,9 +553,6 @@ const freeLoadData = tokenId ? loadBalances[tokenId] : null;
         : "Reload & Unlock Card"}
     </button>
 
-    <p className="mt-3 text-xs leading-5 text-zinc-500">
-      Withdraw is disabled for Free Mint cards for now.
-    </p>
   </div>
 )}
 

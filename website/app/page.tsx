@@ -1164,7 +1164,9 @@ if (error) {
       </h2>
 
       <p className="mt-3 text-zinc-400">
-        Save these details. They were also sent to your email.
+        {orderSuccess.cardType === "free"
+  ? "Your Free Mint confirmation and Telegram Access Code were sent to your email. Reload from the dashboard to unlock your virtual card."
+  : "Save these details. They were also sent to your email."}
       </p>
 
       <div className="mt-6 space-y-4 rounded-2xl border border-white/10 bg-black p-5">

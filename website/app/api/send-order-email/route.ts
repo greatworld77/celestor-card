@@ -7,7 +7,7 @@ const supabaseAdmin = createClient(
 );
 
 const escapeHtml = (value: string) =>
-  value
+  String(value || "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
@@ -58,6 +58,74 @@ export async function POST(req: Request) {
     const safeOrderId = escapeHtml(orderId);
     const safeTelegramCode = escapeHtml(telegramCode);
     const safeCardType = escapeHtml(cardType);
+    const isFreeMint = cardType === "free";
+
+    const subject = isFreeMint
+      ? "Your Celestor Free Mint + Locked Virtual Card Access"
+      : "Your Celestor Card Order Details";
+
+    const htmlContent = isFreeMint
+      ? `
+        <h2>Celestor Free Mint Confirmed</h2>
+
+        <p>Hello ${safeName},</p>
+
+        <p>Your Celestor Free Mint has been created successfully.</p>
+
+        <p><b>Order ID:</b> ${safeOrderId}</p>
+        <p><b>Card Type:</b> Free Mint + Locked Virtual Card</p>
+        <p><b>Telegram Access Code:</b> ${safeTelegramCode}</p>
+
+        <hr/>
+
+        <h3>Your Locked Virtual Card</h3>
+
+        <p>
+          Your Free Mint includes access to a locked Celestor Virtual Card.
+          To unlock it, open your dashboard and complete your first reload.
+        </p>
+
+        <p><b>Minimum Reload:</b> 0.0055 ETH</p>
+        <p><b>First Reload Bonus:</b> 10% promo balance</p>
+
+        <p>
+          Example: if you reload 0.0055 ETH, your displayed card balance will include
+          a 10% promo balance.
+        </p>
+
+        <p>
+          Open the Telegram bot below and send your Telegram Access Code to verify your card:
+        </p>
+
+        <p>
+          <a href="https://t.me/CelestorCardbot">@CelestorCardbot</a>
+        </p>
+
+        <br/>
+        <p>Celestor Card Team</p>
+      `
+      : `
+        <h2>Celestor Card Order Confirmed</h2>
+
+        <p>Hello ${safeName},</p>
+
+        <p>Your order has been created successfully.</p>
+
+        <p><b>Card Type:</b> ${safeCardType}</p>
+        <p><b>Order ID:</b> ${safeOrderId}</p>
+        <p><b>Telegram Access Code:</b> ${safeTelegramCode}</p>
+
+        <p>
+          Click the link below and send your Telegram code to receive your card details:
+        </p>
+
+        <p>
+          <a href="https://t.me/CelestorCardbot">@CelestorCardbot</a>
+        </p>
+
+        <br/>
+        <p>Celestor Card Team</p>
+      `;
 
     const response = await fetch("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
@@ -77,23 +145,8 @@ export async function POST(req: Request) {
             name: safeName,
           },
         ],
-        subject: "Your Celestor Card Order Details",
-        htmlContent: `
-          <h2>Celestor Card Order Confirmed</h2>
-          <p>Hello ${safeName},</p>
-          <p>Your order has been created successfully.</p>
-          <p><b>Card Type:</b> ${safeCardType}</p>
-          <p><b>Order ID:</b> ${safeOrderId}</p>
-          <p><b>Telegram Access Code:</b> ${safeTelegramCode}</p>
-          <p>
-            Click the link below and send your Telegram code to receive your card details:
-          </p>
-          <p>
-            <a href="https://t.me/CelestorCardbot">@CelestorCardbot</a>
-          </p>
-          <br/>
-          <p>Celestor Card Team</p>
-        `,
+        subject,
+        htmlContent,
       }),
     });
 

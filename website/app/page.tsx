@@ -8,11 +8,60 @@ import { useWriteContract, usePublicClient } from "wagmi";
 import { parseEther } from "viem";
 import { CELESTOR_CARD_ABI } from "../lib/contracts/CelestorCardABI";
 
+const processSteps = [
+  {
+    title: "Create your Celestor account",
+    description:
+      "Sign up with your email address, verify your email, then log in before starting a card order.",
+  },
+  {
+    title: "Connect your wallet",
+    description:
+      "Use the Connect Wallet button to connect the same Sepolia wallet that will mint and own your card NFT.",
+  },
+  {
+    title: "Choose and mint a card",
+    description:
+      "Select Virtual, Physical, or Free NFT Card. Paid cards require a Sepolia testnet transaction before the order is created.",
+  },
+  {
+    title: "Check email and Telegram",
+    description:
+      "After a successful mint, Celestor emails your order ID and Telegram access code so you can verify your card in the bot.",
+  },
+];
+
 const faqs = [
-  "How To Purchase The Cards?",
-  "How To Gain Access To The Telegram?",
-  "How The Celestor Card Works?",
-  "How To Load/Withdraw From The Card?",
+  {
+    question: "How do I purchase a Celestor Card?",
+    answer:
+      "Create an account, connect your Sepolia wallet, choose a card type, and confirm the wallet transaction. Once the transaction is confirmed, your order is saved and your order ID is sent by email.",
+  },
+  {
+    question: "How do I get Telegram access?",
+    answer:
+      "After your order is created, you receive a Telegram access code by email. Open the Celestor Telegram bot and send that code to verify your card access.",
+  },
+  {
+    question: "How does the Celestor Card work?",
+    answer:
+      "Each card purchase mints an NFT to your connected wallet. The NFT token ID links your on-chain card ownership with your Celestor dashboard, order status, and Telegram verification.",
+  },
+  {
+    question: "Can I reload or withdraw from my card?",
+    answer:
+      "Paid card holders can manage reload and withdrawal actions from the dashboard when those testnet functions are enabled. Free NFT cards are for access and do not include the same vault controls.",
+  },
+  {
+    question: "What is the difference between Virtual, Physical, and Free cards?",
+    answer:
+      "The Virtual Card is a digital testnet card, the Physical Card includes shipping details for fulfillment tracking, and the Free NFT Card is a limited free mint with one claim per wallet.",
+  },
+  {
+    question: "Which network should I use?",
+    answer:
+      "Celestor is currently built for Sepolia testnet. Make sure your wallet is connected to Sepolia and has enough testnet ETH before purchasing a paid card.",
+  },
 ];
 
 export default function Home() {
@@ -563,6 +612,38 @@ return (
         </div>
       </section>
 
+      <section className="px-6 py-20">
+        <div className="mx-auto max-w-7xl">
+          <div className="mb-10 max-w-3xl">
+            <p className="text-sm font-bold uppercase tracking-[0.3em] text-yellow-300">
+              User Flow
+            </p>
+            <h2 className="mt-3 text-4xl font-black">How Celestor works</h2>
+            <p className="mt-4 text-zinc-400">
+              The whole process connects your email account, wallet, card NFT,
+              dashboard order, and Telegram verification code.
+            </p>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-4">
+            {processSteps.map((step, index) => (
+              <div
+                key={step.title}
+                className="rounded-3xl border border-white/10 bg-white/[0.04] p-6"
+              >
+                <div className="mb-5 flex h-10 w-10 items-center justify-center rounded-full bg-yellow-400 font-black text-black">
+                  {index + 1}
+                </div>
+                <h3 className="text-lg font-black">{step.title}</h3>
+                <p className="mt-3 text-sm leading-6 text-zinc-400">
+                  {step.description}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       <section id="purchase" className="px-6 py-20">
         <div className="mx-auto max-w-7xl">
           <div className="mb-10 flex flex-col justify-between gap-4 md:flex-row md:items-end">
@@ -573,8 +654,8 @@ return (
               <h2 className="mt-3 text-4xl font-black">Choose your Celestor Card</h2>
             </div>
             <p className="max-w-xl text-zinc-400">
-              Reload and withdrawal features are displayed as disabled during
-              the initial testnet phase.
+              Mint your card NFT on Sepolia, receive your order details by email,
+              then manage your card from the Celestor dashboard.
             </p>
           </div>
 
@@ -644,11 +725,12 @@ return (
           <h2 className="mb-10 text-4xl font-black">FAQ</h2>
 
           {faqs.map((item) => (
-            <div key={item} className="mb-4 rounded-3xl border border-white/10 bg-white/[0.04] p-6">
-              <h3 className="font-black">{item}</h3>
-              <p className="mt-3 text-zinc-400">
-                Details will be added during the official Celestor testnet setup.
-              </p>
+            <div
+              key={item.question}
+              className="mb-4 rounded-3xl border border-white/10 bg-white/[0.04] p-6"
+            >
+              <h3 className="font-black">{item.question}</h3>
+              <p className="mt-3 leading-7 text-zinc-400">{item.answer}</p>
             </div>
           ))}
         </div>

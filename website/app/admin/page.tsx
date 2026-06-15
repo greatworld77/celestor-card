@@ -28,6 +28,9 @@ const { writeContractAsync } = useWriteContract();
 
 const isWrongNetwork = isConnected && chainId !== sepolia.id;
 const [coupons, setCoupons] = useState<any[]>([]);
+const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
+const [updatingTrackingId, setUpdatingTrackingId] = useState<string | null>(null);
+const [isSavingCoupon, setIsSavingCoupon] = useState(false);
 const [notice, setNotice] = useState<AppNoticeData | null>(null);
 
 const showNotice = (
@@ -41,121 +44,180 @@ const contractAddress = env.CELESTOR_CARD_CONTRACT as `0x${string}`;
 const adminEmail = env.ADMIN_EMAIL;
 
   const updateOrderStatus = async (id: string, status: string) => {
-  const { error } = await supabase
-    .from("cards")
-    .update({ status })
-    .eq("id", id);
+  setUpdatingStatusId(id);
 
-  if (error) {
-    showNotice(error.message, "error");
-    return;
+  try {
+    const { error } = await supabase
+      .from("cards")
+      .update({ status })
+      .eq("id", id);
+
+    if (error) {
+      showNotice(error.message, "error");
+      return;
+    }
+
+    setOrders((current) =>
+      current.map((order) =>
+        order.id === id ? { ...order, status } : order
+      )
+    );
+
+    showNotice("Order status updated.", "success");
+  } catch (error) {
+    console.error(error);
+    showNotice("Failed to update order status.", "error");
+  } finally {
+    setUpdatingStatusId(null);
   }
-
-  setOrders((current) =>
-    current.map((order) =>
-      order.id === id ? { ...order, status } : order
-    )
-  );
 };
+
 const updateTracking = async (id: string, tracking: string) => {
   const normalizedTracking = tracking.trim();
 
-  const { error } = await supabase
-    .from("cards")
-    .update({ tracking_number: normalizedTracking })
-    .eq("id", id);
+  setUpdatingTrackingId(id);
 
-  if (error) {
-    showNotice(error.message, "error");
-    return;
-  }
+  try {
+    const { error } = await supabase
+      .from("cards")
+      .update({ tracking_number: normalizedTracking })
+      .eq("id", id);
 
-  const order = orders.find((o) => o.id === id);
-
-  if (order && normalizedTracking) {
-    const { data: shipping } = await supabase
-      .from("shipping_addresses")
-      .select("email")
-      .eq("card_order_id", order.order_id)
-      .single();
-
-    if (shipping?.email) {
-      const { data: sessionData } = await supabase.auth.getSession();
-
-const accessToken = sessionData.session?.access_token;
-
-const trackingResponse = await fetch("/api/send-tracking-email", {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${accessToken}`,
-  },
-  body: JSON.stringify({
-    email: shipping.email,
-    orderId: order.order_id,
-    tracking: normalizedTracking,
-  }),
-});
-
-if (!trackingResponse.ok) {
-  console.error("Tracking email failed:", await trackingResponse.text());
-}
+    if (error) {
+      showNotice(error.message, "error");
+      return;
     }
+
+    const order = orders.find((o) => o.id === id);
+
+    if (order && normalizedTracking) {
+      const { data: shipping } = await supabase
+        .from("shipping_addresses")
+        .select("email")
+        .eq("card_order_id", order.order_id)
+        .single();
+
+      if (shipping?.email) {
+        const { data: sessionData } = await supabase.auth.getSession();
+
+        const accessToken = sessionData.session?.access_token;
+
+        const trackingResponse = await fetch("/api/send-tracking-email", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            email: shipping.email,
+            orderId: order.order_id,
+            tracking: normalizedTracking,
+          }),
+        });
+
+        if (!trackingResponse.ok) {
+          console.error("Tracking email failed:", await trackingResponse.text());
+        }
+      }
+    }
+
+    setOrders((current) =>
+      current.map((order) =>
+        order.id === id
+          ? { ...order, tracking_number: normalizedTracking }
+          : order
+      )
+    );
+
+    showNotice("Tracking updated successfully.", "success");
+  } catch (error) {
+    console.error(error);
+    showNotice("Failed to update tracking.", "error");
+  } finally {
+    setUpdatingTrackingId(null);
   }
-
-  setOrders((current) =>
-    current.map((order) =>
-      order.id === id
-        ? { ...order, tracking_number: normalizedTracking }
-        : order
-    )
-  );
-
-  showNotice("Tracking updated successfully.", "success");
 };
 
 const saveCoupon = async () => {
-  if (!couponInput || !discountInput) {
+  const normalizedCode = couponInput.trim().toUpperCase();
+  const discount = Number(discountInput);
+
+  if (!normalizedCode || !discountInput) {
     showNotice("Enter coupon code and discount.", "error");
     return;
   }
 
-  const discountBps = Math.floor(Number(discountInput) * 100);
-
-  if (discountBps < 0 || discountBps > 10000) {
+  if (discount < 0 || discount > 100) {
     showNotice("Discount must be between 0 and 100.", "error");
     return;
   }
 
   const networkReady = await ensureSepoliaNetwork();
 
-if (!networkReady) {
-  return;
-}
+  if (!networkReady) {
+    return;
+  }
 
-  await writeContractAsync({
-    address: contractAddress,
-    abi: CELESTOR_CARD_ABI,
-    functionName: "setCoupon",
-    args: [couponInput, BigInt(discountBps), couponActive],
-  });
+  setIsSavingCoupon(true);
 
-  await supabase.from("coupons").upsert({
-  code: couponInput,
-  discount_percent: Number(discountInput),
-  active: couponActive,
-});
-setCoupons((prev) => [
-  {
-    id: Date.now(),
-    code: couponInput,
-    discount_percent: Number(discountInput),
-    active: couponActive,
-  },
-  ...prev,
-]);
+  try {
+    const discountBps = Math.floor(discount * 100);
 
-  showNotice("Coupon updated successfully.", "success");
+    await writeContractAsync({
+      address: contractAddress,
+      abi: CELESTOR_CARD_ABI,
+      functionName: "setCoupon",
+      args: [normalizedCode, BigInt(discountBps), couponActive],
+    });
+
+    const { error } = await supabase.from("coupons").upsert({
+      code: normalizedCode,
+      discount_percent: discount,
+      active: couponActive,
+    });
+
+    if (error) {
+      showNotice(error.message, "error");
+      return;
+    }
+
+    setCoupons((current) => {
+      const exists = current.some((coupon) => coupon.code === normalizedCode);
+
+      if (exists) {
+        return current.map((coupon) =>
+          coupon.code === normalizedCode
+            ? {
+                ...coupon,
+                discount_percent: discount,
+                active: couponActive,
+              }
+            : coupon
+        );
+      }
+
+      return [
+        {
+          id: normalizedCode,
+          code: normalizedCode,
+          discount_percent: discount,
+          active: couponActive,
+        },
+        ...current,
+      ];
+    });
+
+    setCouponInput("");
+    setDiscountInput("");
+    setCouponActive(true);
+
+    showNotice("Coupon updated successfully.", "success");
+  } catch (error) {
+    console.error(error);
+    showNotice("Failed to save coupon.", "error");
+  } finally {
+    setIsSavingCoupon(false);
+  }
 };
 
 const ensureSepoliaNetwork = async () => {
@@ -324,11 +386,16 @@ if (!allowed) {
     </select>
 
         <button
-      onClick={saveCoupon}
-      className="rounded-xl bg-yellow-400 px-4 py-3 font-black text-black"
-    >
-      Save Coupon
-    </button>
+  onClick={saveCoupon}
+  disabled={isSavingCoupon || isWrongNetwork || isSwitchingChain}
+  className="rounded-xl bg-yellow-400 px-4 py-3 font-black text-black disabled:cursor-not-allowed disabled:opacity-60"
+>
+  {isSavingCoupon
+    ? "Saving..."
+    : isWrongNetwork
+    ? "Switch to Sepolia"
+    : "Save Coupon"}
+</button>
   </div>
 
   <div className="mt-6">
@@ -480,10 +547,12 @@ if (!allowed) {
                 </p>
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
   <select
-    value={order.status}
-    onChange={(e) => updateOrderStatus(order.id, e.target.value)}
-    className="rounded-xl border border-white/10 bg-black px-4 py-2 text-white"
-  >
+  value={order.status}
+  onChange={(e) => updateOrderStatus(order.id, e.target.value)}
+  disabled={updatingStatusId === order.id}
+  className="rounded-xl border border-white/10 bg-black px-4 py-2 text-white disabled:cursor-not-allowed disabled:opacity-60"
+>
+
     <option value="pending">Pending</option>
     <option value="approved">Approved</option>
     <option value="processing">Processing</option>
@@ -492,10 +561,15 @@ if (!allowed) {
     <option value="cancelled">Cancelled</option>
   </select>
 
+{updatingStatusId === order.id && (
+  <p className="text-xs text-yellow-300">Updating status...</p>
+)}
+
   <input
     type="text"
     placeholder="Tracking Number"
     value={order.tracking_number || ""}
+    disabled={updatingTrackingId === order.id}
     onChange={(e) =>
       setOrders((current) =>
         current.map((o) =>
@@ -506,8 +580,16 @@ if (!allowed) {
       )
     }
     onBlur={(e) => updateTracking(order.id, e.target.value)}
-    className="rounded-xl border border-white/10 bg-black px-4 py-2 text-white"
+    className="rounded-xl border border-white/10 bg-black px-4 py-2 text-white disabled:cursor-not-allowed disabled:opacity-60"
   />
+
+{updatingTrackingId === order.id && (
+  <p className="text-xs text-yellow-300">Saving tracking...</p>
+)}
+
+  {updatingTrackingId === order.id && (
+  <p className="text-xs text-yellow-300">Saving tracking...</p>
+)}
 </div>
                 <p className="break-all text-sm text-zinc-500">
                   Wallet: {order.wallet_address}

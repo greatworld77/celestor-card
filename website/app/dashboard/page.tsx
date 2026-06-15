@@ -29,6 +29,8 @@ export default function Dashboard() {
 const [withdrawAmount, setWithdrawAmount] = useState("");
 const [selectedTokenId, setSelectedTokenId] = useState<string | null>(null);
 const [vaultBalances, setVaultBalances] = useState<Record<string, string>>({});
+const [reloadingTokenId, setReloadingTokenId] = useState<string | null>(null);
+const [withdrawingTokenId, setWithdrawingTokenId] = useState<string | null>(null);
 const [notice, setNotice] = useState<AppNoticeData | null>(null);
 
 const showNotice = (
@@ -129,9 +131,11 @@ const vaultAddress = env.CELESTOR_VAULT_CONTRACT as `0x${string}`;
 
   const networkReady = await ensureSepoliaNetwork();
 
-if (!networkReady) {
-  return;
-}
+  if (!networkReady) {
+    return;
+  }
+
+  setReloadingTokenId(selectedTokenId);
 
   try {
     await writeContractAsync({
@@ -147,6 +151,8 @@ if (!networkReady) {
   } catch (error) {
     console.error(error);
     showNotice("Reload failed. Please try again.", "error");
+  } finally {
+    setReloadingTokenId(null);
   }
 };
 
@@ -163,9 +169,11 @@ const withdrawCard = async () => {
 
   const networkReady = await ensureSepoliaNetwork();
 
-if (!networkReady) {
-  return;
-}
+  if (!networkReady) {
+    return;
+  }
+
+  setWithdrawingTokenId(selectedTokenId);
 
   try {
     await writeContractAsync({
@@ -180,6 +188,8 @@ if (!networkReady) {
   } catch (error) {
     console.error(error);
     showNotice("Withdrawal failed. Please try again.", "error");
+  } finally {
+    setWithdrawingTokenId(null);
   }
 };
 
@@ -390,11 +400,16 @@ if (isCheckingAuth) {
               />
 
               <button
-                onClick={reloadCard}
-                className="mb-3 w-full rounded-full bg-green-400 py-3 font-black text-black"
-              >
-                Reload Card
-              </button>
+  onClick={reloadCard}
+  disabled={reloadingTokenId === tokenId || isWrongNetwork || isSwitchingChain}
+  className="mb-3 w-full rounded-full bg-green-400 py-3 font-black text-black disabled:cursor-not-allowed disabled:opacity-60"
+>
+  {reloadingTokenId === tokenId
+    ? "Reloading..."
+    : isWrongNetwork
+    ? "Switch to Sepolia"
+    : "Reload Card"}
+</button>
 
               <input
                 type="number"
@@ -410,11 +425,16 @@ if (isCheckingAuth) {
               />
 
               <button
-                onClick={withdrawCard}
-                className="w-full rounded-full border border-white/20 py-3 font-black"
-              >
-                Withdraw
-              </button>
+  onClick={withdrawCard}
+  disabled={withdrawingTokenId === tokenId || isWrongNetwork || isSwitchingChain}
+  className="w-full rounded-full border border-white/20 py-3 font-black disabled:cursor-not-allowed disabled:opacity-60"
+>
+  {withdrawingTokenId === tokenId
+    ? "Withdrawing..."
+    : isWrongNetwork
+    ? "Switch to Sepolia"
+    : "Withdraw"}
+</button>
             </div>
           )}
         </div>

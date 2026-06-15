@@ -72,6 +72,30 @@ const faqs = [
   },
 ];
 
+const blockedEmailDomains = [
+  "mailinator.com",
+  "10minutemail.com",
+  "guerrillamail.com",
+  "tempmail.com",
+  "temp-mail.org",
+  "yopmail.com",
+  "trashmail.com",
+  "dispostable.com",
+  "fakeinbox.com",
+  "getnada.com",
+  "sharklasers.com",
+  "grr.la",
+  "maildrop.cc",
+  "throwawaymail.com",
+  "emailondeck.com",
+];
+
+const getEmailDomain = (email: string) =>
+  email.trim().toLowerCase().split("@").pop() || "";
+
+const isBlockedEmailDomain = (email: string) =>
+  blockedEmailDomains.includes(getEmailDomain(email));
+
 export default function Home() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [selectedCard, setSelectedCard] = useState<"virtual" | "physical" | "free" | null>(null);
@@ -1039,6 +1063,17 @@ return (
           }
 
           if (authMode === "signup") {
+            if (authMode === "signup" && isBlockedEmailDomain(authEmail)) {
+  setAuthMessage(
+    "Temporary email addresses are not allowed. Please use a real email address."
+  );
+  showNotice(
+    "Temporary email addresses are not allowed. Please use a real email address.",
+    "error"
+  );
+  return;
+}
+
             const { error } = await supabase.auth.signUp({
   email,
   password,

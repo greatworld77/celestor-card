@@ -65,17 +65,26 @@ const updateTracking = async (id: string, tracking: string) => {
       .single();
 
     if (shipping?.email) {
-      await fetch("/api/send-tracking-email", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          email: shipping.email,
-          orderId: order.order_id,
-          tracking: normalizedTracking,
-        }),
-      });
+      const { data: sessionData } = await supabase.auth.getSession();
+
+const accessToken = sessionData.session?.access_token;
+
+const trackingResponse = await fetch("/api/send-tracking-email", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${accessToken}`,
+  },
+  body: JSON.stringify({
+    email: shipping.email,
+    orderId: order.order_id,
+    tracking: normalizedTracking,
+  }),
+});
+
+if (!trackingResponse.ok) {
+  console.error("Tracking email failed:", await trackingResponse.text());
+}
     }
   }
 

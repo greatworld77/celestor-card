@@ -350,19 +350,28 @@ const createOrder = async () => {
       }
     }
 
-    await fetch("/api/send-order-email", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        email: userEmail,
-        name: orderFullName.trim() || userName || "Celestor User",
-        orderId,
-        telegramCode,
-        cardType: selectedCard,
-      }),
-    });
+    const { data: sessionData } = await supabase.auth.getSession();
+
+const accessToken = sessionData.session?.access_token;
+
+const emailResponse = await fetch("/api/send-order-email", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${accessToken}`,
+  },
+  body: JSON.stringify({
+    email: userEmail,
+    name: orderFullName.trim() || userName || "Celestor User",
+    orderId,
+    telegramCode,
+    cardType: selectedCard,
+  }),
+});
+
+if (!emailResponse.ok) {
+  console.error("Order email failed:", await emailResponse.text());
+}
 
     alert(
       `Order created successfully!\n\nOrder ID: ${orderId}\nTelegram Code: ${telegramCode}`

@@ -336,6 +336,200 @@ useEffect(() => {
   return () => window.clearTimeout(timer);
 }, [notice]);
 
+const paidCardOrders = orders.filter((order) => order.card_type !== "free");
+const freeMintOrders = orders.filter((order) => order.card_type === "free");
+
+const renderOrderCard = (order: (typeof orders)[number]) => {
+  const tokenId = order.token_id ? String(order.token_id) : "";
+  const isFreeCard = order.card_type === "free";
+  const hasVaultControls = Boolean(tokenId && !isFreeCard);
+  const freeLoadData = tokenId ? loadBalances[tokenId] : null;
+
+  return (
+    <div
+      key={order.id}
+      className="rounded-2xl border border-white/10 bg-black/40 p-5"
+    >
+      <div className="flex flex-col justify-between gap-4 md:flex-row">
+        <div className="min-w-0 flex-1">
+          <p className="font-bold text-yellow-300">{order.order_id}</p>
+
+          <div className="mt-3 grid gap-2 text-sm text-zinc-400">
+            <p className="capitalize">
+              Type: <span className="text-white">{order.card_type}</span>
+            </p>
+
+            <p className="capitalize">
+              Status: <span className="text-white">{order.status}</span>
+            </p>
+
+            <p className="font-mono text-cyan-400">
+              Telegram: {order.telegram_code}
+            </p>
+
+            {order.tracking_number && (
+              <p className="text-green-400">
+                Tracking: {order.tracking_number}
+              </p>
+            )}
+
+            {tokenId && (
+              <p className="text-cyan-400">NFT Token ID: #{tokenId}</p>
+            )}
+
+            {isFreeCard && tokenId && (
+              <div className="rounded-xl border border-cyan-400/20 bg-cyan-400/10 p-4 text-sm text-cyan-100">
+                <p className="font-bold">
+                  Free Mint Virtual Card:{" "}
+                  {freeLoadData?.unlocked ? "Unlocked" : "Locked"}
+                </p>
+
+                <p className="mt-2">
+                  Displayed Balance: {freeLoadData?.displayedBalance || "0"} ETH
+                </p>
+
+                <p>
+                  First Reload Bonus:{" "}
+                  {freeLoadData?.firstReloadBonusUsed ? "Used" : "Available"}
+                </p>
+
+                <p className="mt-2 text-cyan-200/80">
+                  Reload at least 0.0055 ETH to unlock this card. Your first
+                  reload includes a 10% promo balance.
+                </p>
+              </div>
+            )}
+
+            {hasVaultControls && (
+              <p className="text-green-400">
+                Vault Balance: {vaultBalances[tokenId] || "0"} ETH
+              </p>
+            )}
+
+            {order.tx_hash && (
+              <a
+                href={`https://sepolia.etherscan.io/tx/${order.tx_hash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-fit text-yellow-300 underline"
+              >
+                View Blockchain Transaction
+              </a>
+            )}
+          </div>
+
+          {isFreeCard && tokenId && (
+            <div className="mt-5 rounded-xl border border-white/10 bg-white/[0.03] p-4">
+              <p className="mb-3 font-bold text-yellow-300">
+                Free Mint Reload
+              </p>
+
+              <input
+                type="number"
+                min="0.0055"
+                step="0.0001"
+                placeholder="Reload amount in ETH"
+                value={selectedTokenId === tokenId ? reloadAmount : ""}
+                onChange={(e) => {
+                  setSelectedTokenId(tokenId);
+                  setReloadAmount(e.target.value);
+                }}
+                className="mb-3 w-full rounded-xl border border-white/10 bg-black px-4 py-3 text-white"
+              />
+
+              <button
+                onClick={() => reloadFreeCard(tokenId)}
+                disabled={
+                  freeReloadingTokenId === tokenId ||
+                  isWrongNetwork ||
+                  isSwitchingChain
+                }
+                className="w-full rounded-full bg-cyan-300 py-3 font-black text-black disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {freeReloadingTokenId === tokenId
+                  ? "Reloading..."
+                  : isWrongNetwork
+                  ? "Switch to Sepolia"
+                  : freeLoadData?.unlocked
+                  ? "Reload Free Mint Card"
+                  : "Reload & Unlock Card"}
+              </button>
+            </div>
+          )}
+
+          {hasVaultControls && (
+            <div className="mt-5 rounded-xl border border-white/10 bg-white/[0.03] p-4">
+              <p className="mb-3 font-bold text-yellow-300">Vault Controls</p>
+
+              <input
+                type="number"
+                min="0"
+                step="0.0001"
+                placeholder="Reload amount in ETH"
+                value={selectedTokenId === tokenId ? reloadAmount : ""}
+                onChange={(e) => {
+                  setSelectedTokenId(tokenId);
+                  setReloadAmount(e.target.value);
+                }}
+                className="mb-3 w-full rounded-xl border border-white/10 bg-black px-4 py-3 text-white"
+              />
+
+              <button
+                onClick={reloadCard}
+                disabled={
+                  reloadingTokenId === tokenId ||
+                  isWrongNetwork ||
+                  isSwitchingChain
+                }
+                className="mb-3 w-full rounded-full bg-green-400 py-3 font-black text-black disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {reloadingTokenId === tokenId
+                  ? "Reloading..."
+                  : isWrongNetwork
+                  ? "Switch to Sepolia"
+                  : "Reload Card"}
+              </button>
+
+              <input
+                type="number"
+                min="0"
+                step="0.0001"
+                placeholder="Withdraw amount in ETH"
+                value={selectedTokenId === tokenId ? withdrawAmount : ""}
+                onChange={(e) => {
+                  setSelectedTokenId(tokenId);
+                  setWithdrawAmount(e.target.value);
+                }}
+                className="mb-3 w-full rounded-xl border border-white/10 bg-black px-4 py-3 text-white"
+              />
+
+              <button
+                onClick={withdrawCard}
+                disabled={
+                  withdrawingTokenId === tokenId ||
+                  isWrongNetwork ||
+                  isSwitchingChain
+                }
+                className="w-full rounded-full border border-white/20 py-3 font-black disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {withdrawingTokenId === tokenId
+                  ? "Withdrawing..."
+                  : isWrongNetwork
+                  ? "Switch to Sepolia"
+                  : "Withdraw"}
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="shrink-0 text-sm text-zinc-500">
+          {order.created_at ? new Date(order.created_at).toLocaleString() : ""}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 if (isCheckingAuth) {
   return (
     <main className="flex min-h-screen items-center justify-center bg-black px-6 text-white">
@@ -423,211 +617,77 @@ if (isCheckingAuth) {
         </div>
 
         <div className="mt-8 rounded-3xl border border-white/10 bg-white/[0.03] p-6">
-          <h2 className="mb-6 text-2xl font-black">Orders</h2>
+  <h2 className="mb-6 text-2xl font-black">Orders</h2>
 
-          {orders.length === 0 ? (
-  <EmptyState
-    title="No cards yet"
-    message="You have not created a Celestor card order yet. Choose a Virtual, Physical, or Free NFT Card from the homepage to get started."
-    actionHref="/#purchase"
-    actionLabel="Choose a Card"
-  />
-) : (
-            <div className="space-y-4">
-              {orders.map((order) => {
-  const tokenId = order.token_id ? String(order.token_id) : "";
-const isFreeCard = order.card_type === "free";
-const hasVaultControls = Boolean(tokenId && !isFreeCard);
-const freeLoadData = tokenId ? loadBalances[tokenId] : null;
-
-  return (
-    <div
-      key={order.id}
-      className="rounded-2xl border border-white/10 bg-black/40 p-5"
-    >
-      <div className="flex flex-col justify-between gap-4 md:flex-row">
-        <div className="min-w-0 flex-1">
-          <p className="font-bold text-yellow-300">
-            {order.order_id}
-          </p>
-
-          <div className="mt-3 grid gap-2 text-sm text-zinc-400">
-            <p className="capitalize">
-              Type: <span className="text-white">{order.card_type}</span>
-            </p>
-
-            <p className="capitalize">
-              Status: <span className="text-white">{order.status}</span>
-            </p>
-
-            <p className="font-mono text-cyan-400">
-              Telegram: {order.telegram_code}
-            </p>
-
-            {order.tracking_number && (
-              <p className="text-green-400">
-                Tracking: {order.tracking_number}
+  {orders.length === 0 ? (
+    <EmptyState
+      title="No cards yet"
+      message="You have not created a Celestor card order yet. Choose a Virtual, Physical, or Free NFT Card from the homepage to get started."
+      actionHref="/#purchase"
+      actionLabel="Choose a Card"
+    />
+  ) : (
+    <div className="space-y-8">
+      {paidCardOrders.length > 0 && (
+        <section className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+          <div className="flex flex-col justify-between gap-3 md:flex-row md:items-end">
+            <div>
+              <p className="text-sm font-bold uppercase tracking-[0.25em] text-yellow-300">
+                Paid Cards
               </p>
-            )}
 
-            {tokenId && (
-              <p className="text-cyan-400">
-                NFT Token ID: #{tokenId}
+              <h3 className="mt-2 text-2xl font-black">
+                Virtual & Physical Cards
+              </h3>
+
+              <p className="mt-2 text-sm text-zinc-400">
+                These cards use the main Celestor vault balance system.
               </p>
-            )}
+            </div>
 
-{isFreeCard && tokenId && (
-  <div className="rounded-xl border border-cyan-400/20 bg-cyan-400/10 p-4 text-sm text-cyan-100">
-    <p className="font-bold">
-      Free Mint Virtual Card:{" "}
-      {freeLoadData?.unlocked ? "Unlocked" : "Locked"}
-    </p>
-
-    <p className="mt-2">
-      Displayed Balance: {freeLoadData?.displayedBalance || "0"} ETH
-    </p>
-
-    <p>
-      First Reload Bonus:{" "}
-      {freeLoadData?.firstReloadBonusUsed ? "Used" : "Available"}
-    </p>
-
-    <p className="mt-2 text-cyan-200/80">
-      Minimum reload is 0.0055 ETH. First reload includes a 10% promo balance.
-    </p>
-  </div>
-)}
-
-            {hasVaultControls && (
-              <p className="text-green-400">
-                Vault Balance: {vaultBalances[tokenId] || "0"} ETH
-              </p>
-            )}
-
-            {order.tx_hash && (
-              <a
-                href={`https://sepolia.etherscan.io/tx/${order.tx_hash}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-fit text-yellow-300 underline"
-              >
-                View Blockchain Transaction
-              </a>
-            )}
+            <span className="rounded-full border border-white/10 px-4 py-2 text-sm text-zinc-300">
+              {paidCardOrders.length} card
+              {paidCardOrders.length === 1 ? "" : "s"}
+            </span>
           </div>
 
-{isFreeCard && tokenId && (
-  <div className="mt-5 rounded-xl border border-white/10 bg-white/[0.03] p-4">
-    <p className="mb-3 font-bold text-yellow-300">
-      Free Mint Reload
-    </p>
+          <div className="mt-5 space-y-4">
+            {paidCardOrders.map(renderOrderCard)}
+          </div>
+        </section>
+      )}
 
-    <input
-      type="number"
-      min="0.0055"
-      step="0.0001"
-      placeholder="Reload amount in ETH"
-      value={selectedTokenId === tokenId ? reloadAmount : ""}
-      onChange={(e) => {
-        setSelectedTokenId(tokenId);
-        setReloadAmount(e.target.value);
-      }}
-      className="mb-3 w-full rounded-xl border border-white/10 bg-black px-4 py-3 text-white"
-    />
-
-    <button
-      onClick={() => reloadFreeCard(tokenId)}
-      disabled={
-        freeReloadingTokenId === tokenId ||
-        isWrongNetwork ||
-        isSwitchingChain
-      }
-      className="w-full rounded-full bg-cyan-300 py-3 font-black text-black disabled:cursor-not-allowed disabled:opacity-60"
-    >
-      {freeReloadingTokenId === tokenId
-        ? "Reloading..."
-        : isWrongNetwork
-        ? "Switch to Sepolia"
-        : freeLoadData?.unlocked
-        ? "Reload Free Mint Card"
-        : "Reload & Unlock Card"}
-    </button>
-
-  </div>
-)}
-
-          {hasVaultControls && (
-            <div className="mt-5 rounded-xl border border-white/10 bg-white/[0.03] p-4">
-              <p className="mb-3 font-bold text-yellow-300">
-                Vault Controls
+      {freeMintOrders.length > 0 && (
+        <section className="rounded-3xl border border-cyan-400/20 bg-cyan-400/[0.04] p-5">
+          <div className="flex flex-col justify-between gap-3 md:flex-row md:items-end">
+            <div>
+              <p className="text-sm font-bold uppercase tracking-[0.25em] text-cyan-300">
+                Free Mint
               </p>
 
-              <input
-                type="number"
-                min="0"
-                step="0.0001"
-                placeholder="Reload amount in ETH"
-                value={selectedTokenId === tokenId ? reloadAmount : ""}
-                onChange={(e) => {
-                  setSelectedTokenId(tokenId);
-                  setReloadAmount(e.target.value);
-                }}
-                className="mb-3 w-full rounded-xl border border-white/10 bg-black px-4 py-3 text-white"
-              />
+              <h3 className="mt-2 text-2xl font-black">
+                Locked Virtual Cards
+              </h3>
 
-              <button
-  onClick={reloadCard}
-  disabled={reloadingTokenId === tokenId || isWrongNetwork || isSwitchingChain}
-  className="mb-3 w-full rounded-full bg-green-400 py-3 font-black text-black disabled:cursor-not-allowed disabled:opacity-60"
->
-  {reloadingTokenId === tokenId
-    ? "Reloading..."
-    : isWrongNetwork
-    ? "Switch to Sepolia"
-    : "Reload Card"}
-</button>
-
-              <input
-                type="number"
-                min="0"
-                step="0.0001"
-                placeholder="Withdraw amount in ETH"
-                value={selectedTokenId === tokenId ? withdrawAmount : ""}
-                onChange={(e) => {
-                  setSelectedTokenId(tokenId);
-                  setWithdrawAmount(e.target.value);
-                }}
-                className="mb-3 w-full rounded-xl border border-white/10 bg-black px-4 py-3 text-white"
-              />
-
-              <button
-  onClick={withdrawCard}
-  disabled={withdrawingTokenId === tokenId || isWrongNetwork || isSwitchingChain}
-  className="w-full rounded-full border border-white/20 py-3 font-black disabled:cursor-not-allowed disabled:opacity-60"
->
-  {withdrawingTokenId === tokenId
-    ? "Withdrawing..."
-    : isWrongNetwork
-    ? "Switch to Sepolia"
-    : "Withdraw"}
-</button>
+              <p className="mt-2 text-sm text-zinc-400">
+                Free Mint cards unlock after the first reload and use Celestor Load.
+              </p>
             </div>
-          )}
-        </div>
 
-        <div className="shrink-0 text-sm text-zinc-500">
-          {order.created_at
-            ? new Date(order.created_at).toLocaleString()
-            : ""}
-        </div>
-      </div>
+            <span className="rounded-full border border-cyan-400/20 px-4 py-2 text-sm text-cyan-100">
+              {freeMintOrders.length} card
+              {freeMintOrders.length === 1 ? "" : "s"}
+            </span>
+          </div>
+
+          <div className="mt-5 space-y-4">
+            {freeMintOrders.map(renderOrderCard)}
+          </div>
+        </section>
+      )}
     </div>
-  );
-})}
-              
-            </div>
-          )}
-        </div>
+  )}
+</div>
       </div>
     </main>
   );

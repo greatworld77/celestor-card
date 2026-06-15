@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 import { parseEther, formatEther } from "viem";
 import { CELESTOR_VAULT_ABI } from "../../lib/contracts/CelestorVaultABI";
+import { CELESTOR_LOAD_ABI } from "../../lib/contracts/CelestorLoadABI";
 import {
   useAccount,
   useChainId,
@@ -33,6 +34,16 @@ const [reloadingTokenId, setReloadingTokenId] = useState<string | null>(null);
 const [withdrawingTokenId, setWithdrawingTokenId] = useState<string | null>(null);
 const [notice, setNotice] = useState<AppNoticeData | null>(null);
 
+type LoadBalanceData = {
+  realBalance: string;
+  promoBalance: string;
+  displayedBalance: string;
+  firstReloadBonusUsed: boolean;
+  unlocked: boolean;
+};
+const [loadBalances, setLoadBalances] = useState<Record<string, LoadBalanceData>>({});
+const [freeReloadingTokenId, setFreeReloadingTokenId] = useState<string | null>(null);
+
 const showNotice = (
   message: string,
   type: "success" | "error" | "info" = "info"
@@ -49,6 +60,7 @@ const publicClient = usePublicClient();
 const isWrongNetwork = isConnected && chainId !== sepolia.id;
 
 const vaultAddress = env.CELESTOR_VAULT_CONTRACT as `0x${string}`;
+const loadAddress = env.CELESTOR_LOAD_CONTRACT as `0x${string}`;
 
   const total = orders.length;
   const virtual = orders.filter((o) => o.card_type === "virtual").length;
@@ -91,23 +103,52 @@ const vaultAddress = env.CELESTOR_VAULT_CONTRACT as `0x${string}`;
       setOrders(cards || []);
 
       if (cards && publicClient) {
-        const balances: Record<string, string> = {};
+  const balances: Record<string, string> = {};
+  const freeLoadBalances: Record<string, LoadBalanceData> = {};
 
-        for (const order of cards) {
-          if (order.token_id && order.card_type !== "free") {
-            const balance = await publicClient.readContract({
-              address: vaultAddress,
-              abi: CELESTOR_VAULT_ABI,
-              functionName: "getCardBalance",
-              args: [BigInt(order.token_id)],
-            });
+  for (const order of cards) {
+    if (!order.token_id) continue;
 
-            balances[String(order.token_id)] = formatEther(balance as bigint);
-          }
-        }
+    const tokenId = String(order.token_id);
 
-        setVaultBalances(balances);
-      }
+    if (order.card_type === "free") {
+      const loadData = await publicClient.readContract({
+        address: loadAddress,
+        abi: CELESTOR_LOAD_ABI,
+        functionName: "getCardLoadData",
+        args: [BigInt(tokenId)],
+      });
+
+      const [
+        realBalance,
+        promoBalance,
+        displayedBalance,
+        firstReloadBonusUsed,
+        unlocked,
+      ] = loadData as readonly [bigint, bigint, bigint, boolean, boolean];
+
+      freeLoadBalances[tokenId] = {
+        realBalance: formatEther(realBalance),
+        promoBalance: formatEther(promoBalance),
+        displayedBalance: formatEther(displayedBalance),
+        firstReloadBonusUsed,
+        unlocked,
+      };
+    } else {
+      const balance = await publicClient.readContract({
+        address: vaultAddress,
+        abi: CELESTOR_VAULT_ABI,
+        functionName: "getCardBalance",
+        args: [BigInt(tokenId)],
+      });
+
+      balances[tokenId] = formatEther(balance as bigint);
+    }
+  }
+
+  setVaultBalances(balances);
+  setLoadBalances(freeLoadBalances);
+}
     } catch (error) {
       console.error("Dashboard load failed:", error);
     } finally {
@@ -153,6 +194,77 @@ const vaultAddress = env.CELESTOR_VAULT_CONTRACT as `0x${string}`;
     showNotice("Reload failed. Please try again.", "error");
   } finally {
     setReloadingTokenId(null);
+  }
+};
+
+const reloadFreeCard = async (tokenId: string) => {
+  if (!tokenId) {
+    showNotice("Missing Free Mint token ID.", "error");
+    return;
+  }
+
+  if (!reloadAmount || Number(reloadAmount) <= 0) {
+    showNotice("Please enter a valid reload amount.", "error");
+    return;
+  }
+
+  if (Number(reloadAmount) < 0.0055) {
+    showNotice("Minimum reload for Free Mint cards is 0.0055 ETH.", "error");
+    return;
+  }
+
+  const networkReady = await ensureSepoliaNetwork();
+
+  if (!networkReady) {
+    return;
+  }
+
+  setFreeReloadingTokenId(tokenId);
+
+  try {
+    await writeContractAsync({
+      address: loadAddress,
+      abi: CELESTOR_LOAD_ABI,
+      functionName: "reload",
+      args: [BigInt(tokenId)],
+      value: parseEther(reloadAmount),
+    });
+
+    showNotice("Free Mint virtual card reloaded and unlocked.", "success");
+    setReloadAmount("");
+
+    if (publicClient) {
+      const loadData = await publicClient.readContract({
+        address: loadAddress,
+        abi: CELESTOR_LOAD_ABI,
+        functionName: "getCardLoadData",
+        args: [BigInt(tokenId)],
+      });
+
+      const [
+        realBalance,
+        promoBalance,
+        displayedBalance,
+        firstReloadBonusUsed,
+        unlocked,
+      ] = loadData as readonly [bigint, bigint, bigint, boolean, boolean];
+
+      setLoadBalances((current) => ({
+        ...current,
+        [tokenId]: {
+          realBalance: formatEther(realBalance),
+          promoBalance: formatEther(promoBalance),
+          displayedBalance: formatEther(displayedBalance),
+          firstReloadBonusUsed,
+          unlocked,
+        },
+      }));
+    }
+  } catch (error) {
+    console.error(error);
+    showNotice("Free Mint card reload failed. Please try again.", "error");
+  } finally {
+    setFreeReloadingTokenId(null);
   }
 };
 
@@ -324,7 +436,9 @@ if (isCheckingAuth) {
             <div className="space-y-4">
               {orders.map((order) => {
   const tokenId = order.token_id ? String(order.token_id) : "";
-  const hasVaultControls = Boolean(tokenId && order.card_type !== "free");
+const isFreeCard = order.card_type === "free";
+const hasVaultControls = Boolean(tokenId && !isFreeCard);
+const freeLoadData = tokenId ? loadBalances[tokenId] : null;
 
   return (
     <div
@@ -362,6 +476,28 @@ if (isCheckingAuth) {
               </p>
             )}
 
+{isFreeCard && tokenId && (
+  <div className="rounded-xl border border-cyan-400/20 bg-cyan-400/10 p-4 text-sm text-cyan-100">
+    <p className="font-bold">
+      Free Mint Virtual Card:{" "}
+      {freeLoadData?.unlocked ? "Unlocked" : "Locked"}
+    </p>
+
+    <p className="mt-2">
+      Displayed Balance: {freeLoadData?.displayedBalance || "0"} ETH
+    </p>
+
+    <p>
+      First Reload Bonus:{" "}
+      {freeLoadData?.firstReloadBonusUsed ? "Used" : "Available"}
+    </p>
+
+    <p className="mt-2 text-cyan-200/80">
+      Minimum reload is 0.0055 ETH. First reload includes a 10% promo balance.
+    </p>
+  </div>
+)}
+
             {hasVaultControls && (
               <p className="text-green-400">
                 Vault Balance: {vaultBalances[tokenId] || "0"} ETH
@@ -379,6 +515,49 @@ if (isCheckingAuth) {
               </a>
             )}
           </div>
+
+{isFreeCard && tokenId && (
+  <div className="mt-5 rounded-xl border border-white/10 bg-white/[0.03] p-4">
+    <p className="mb-3 font-bold text-yellow-300">
+      Free Mint Reload
+    </p>
+
+    <input
+      type="number"
+      min="0.0055"
+      step="0.0001"
+      placeholder="Reload amount in ETH"
+      value={selectedTokenId === tokenId ? reloadAmount : ""}
+      onChange={(e) => {
+        setSelectedTokenId(tokenId);
+        setReloadAmount(e.target.value);
+      }}
+      className="mb-3 w-full rounded-xl border border-white/10 bg-black px-4 py-3 text-white"
+    />
+
+    <button
+      onClick={() => reloadFreeCard(tokenId)}
+      disabled={
+        freeReloadingTokenId === tokenId ||
+        isWrongNetwork ||
+        isSwitchingChain
+      }
+      className="w-full rounded-full bg-cyan-300 py-3 font-black text-black disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      {freeReloadingTokenId === tokenId
+        ? "Reloading..."
+        : isWrongNetwork
+        ? "Switch to Sepolia"
+        : freeLoadData?.unlocked
+        ? "Reload Free Mint Card"
+        : "Reload & Unlock Card"}
+    </button>
+
+    <p className="mt-3 text-xs leading-5 text-zinc-500">
+      Withdraw is disabled for Free Mint cards for now.
+    </p>
+  </div>
+)}
 
           {hasVaultControls && (
             <div className="mt-5 rounded-xl border border-white/10 bg-white/[0.03] p-4">

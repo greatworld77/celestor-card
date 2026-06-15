@@ -6,6 +6,8 @@ export const env = {
     process.env.NEXT_PUBLIC_CELESTOR_CARD_CONTRACT || "",
   CELESTOR_VAULT_CONTRACT:
     process.env.NEXT_PUBLIC_CELESTOR_VAULT_CONTRACT || "",
+    CELESTOR_LOAD_CONTRACT:
+  process.env.NEXT_PUBLIC_CELESTOR_LOAD_CONTRACT || "",
   SITE_URL:
     process.env.NEXT_PUBLIC_SITE_URL || "https://celestor-card.vercel.app",
   ADMIN_EMAIL:

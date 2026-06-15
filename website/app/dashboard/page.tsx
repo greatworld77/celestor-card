@@ -1,5 +1,6 @@
 "use client";
 
+import EmptyState from "../../components/EmptyState";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
@@ -303,8 +304,13 @@ if (isCheckingAuth) {
           <h2 className="mb-6 text-2xl font-black">Orders</h2>
 
           {orders.length === 0 ? (
-            <p className="text-zinc-500">No orders found</p>
-          ) : (
+  <EmptyState
+    title="No cards yet"
+    message="You have not created a Celestor card order yet. Choose a Virtual, Physical, or Free NFT Card from the homepage to get started."
+    actionHref="/#purchase"
+    actionLabel="Choose a Card"
+  />
+) : (
             <div className="space-y-4">
               {orders.map((order) => {
   const tokenId = order.token_id ? String(order.token_id) : "";

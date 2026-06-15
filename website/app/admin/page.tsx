@@ -1,5 +1,6 @@
 "use client";
 
+import EmptyState from "../../components/EmptyState";
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
 
@@ -322,12 +323,48 @@ if (!allowed) {
       <option value="inactive">Inactive</option>
     </select>
 
-    <button
+        <button
       onClick={saveCoupon}
       className="rounded-xl bg-yellow-400 px-4 py-3 font-black text-black"
     >
       Save Coupon
     </button>
+  </div>
+
+  <div className="mt-6">
+    <h3 className="mb-4 text-lg font-black">Saved Coupons</h3>
+
+    {coupons.length === 0 ? (
+      <EmptyState
+        title="No coupons created yet"
+        message="Create your first coupon code above. Saved coupons will appear here with their discount and active status."
+      />
+    ) : (
+      <div className="grid gap-3 md:grid-cols-3">
+        {coupons.map((coupon) => (
+          <div
+            key={coupon.id || coupon.code}
+            className="rounded-2xl border border-white/10 bg-black/40 p-4"
+          >
+            <p className="font-mono font-black text-yellow-300">
+              {coupon.code}
+            </p>
+
+            <p className="mt-2 text-sm text-zinc-400">
+              Discount: {coupon.discount_percent}%
+            </p>
+
+            <p
+              className={`mt-1 text-sm ${
+                coupon.active ? "text-green-300" : "text-red-300"
+              }`}
+            >
+              {coupon.active ? "Active" : "Inactive"}
+            </p>
+          </div>
+        ))}
+      </div>
+    )}
   </div>
 </div>
 
@@ -421,8 +458,15 @@ if (!allowed) {
   </select>
 </div>
 
-          <div className="space-y-4">
-            {filteredOrders.map((order) => (
+
+          {filteredOrders.length === 0 ? (
+  <EmptyState
+    title="No orders found"
+    message="No card orders match the current search or status filter. Clear the search field or change the status filter to view more orders."
+  />
+) : (
+  <div className="space-y-4">
+    {filteredOrders.map((order) => (
               <div
                 key={order.id}
                 className="rounded-2xl border border-white/10 bg-black/40 p-5"
@@ -478,6 +522,7 @@ if (!allowed) {
               </div>
             ))}
           </div>
+)}
         </div>
         <div className="mt-8 rounded-3xl border border-white/10 bg-white/[0.03] p-6">
   <h2 className="mb-6 text-2xl font-black">
@@ -485,8 +530,12 @@ if (!allowed) {
   </h2>
 
   {shippingOrders.length === 0 ? (
-    <p className="text-zinc-500">No shipping orders found.</p>
-  ) : (
+  <EmptyState
+    title="No physical shipping orders"
+    message="Physical card orders with shipping details will appear here after users complete a physical card purchase."
+  />
+) : (
+
     <div className="space-y-4">
       {shippingOrders.map((item) => (
         <div
@@ -519,10 +568,11 @@ if (!allowed) {
   </h2>
 
   {users.length === 0 ? (
-    <p className="text-zinc-500">
-      No users found.
-    </p>
-  ) : (
+  <EmptyState
+    title="No registered users"
+    message="User profiles will appear here after customers create accounts and complete profile setup."
+  />
+) : (
     <div className="space-y-4">
       {users.map((user) => (
         <div

@@ -1,11 +1,11 @@
 const getPublicEnv = (key: string) => {
   const value = process.env[key];
 
-  if (!value) {
-    throw new Error(`Missing required environment variable: ${key}`);
+  if (!value && process.env.NODE_ENV === "development") {
+    console.warn(`Missing environment variable: ${key}`);
   }
 
-  return value;
+  return value || "";
 };
 
 export const env = {

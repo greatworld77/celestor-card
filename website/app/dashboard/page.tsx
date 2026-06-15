@@ -1,12 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 import { parseEther, formatEther } from "viem";
 import { CELESTOR_VAULT_ABI } from "../../lib/contracts/CelestorVaultABI";
 import { useWriteContract, usePublicClient } from "wagmi";
 
 export default function Dashboard() {
+  const router = useRouter();
+
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [userName, setUserName] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [wallet, setWallet] = useState("");
@@ -27,9 +31,16 @@ const vaultAddress =
   const free = orders.filter((o) => o.card_type === "free").length;
 
   useEffect(() => {
-    const loadDashboard = async () => {
+  const loadDashboard = async () => {
+    setIsCheckingAuth(true);
+
+    try {
       const { data: userData } = await supabase.auth.getUser();
-      if (!userData.user) return;
+
+      if (!userData.user) {
+        router.replace("/");
+        return;
+      }
 
       setUserEmail(userData.user.email || "");
 
@@ -46,33 +57,41 @@ const vaultAddress =
 
       const { data: cards } = await supabase
         .from("cards")
-        .select("id, order_id, card_type, status, telegram_code, tracking_number, tx_hash, token_id, created_at")
+        .select(
+          "id, order_id, card_type, status, telegram_code, tracking_number, tx_hash, token_id, created_at"
+        )
         .eq("user_id", userData.user.id)
         .order("created_at", { ascending: false });
 
       setOrders(cards || []);
+
       if (cards && publicClient) {
-  const balances: Record<string, string> = {};
+        const balances: Record<string, string> = {};
 
-  for (const order of cards) {
-    if (order.token_id && order.card_type !== "free") {
-      const balance = await publicClient.readContract({
-        address: vaultAddress,
-        abi: CELESTOR_VAULT_ABI,
-        functionName: "getCardBalance",
-        args: [BigInt(order.token_id)],
-      });
+        for (const order of cards) {
+          if (order.token_id && order.card_type !== "free") {
+            const balance = await publicClient.readContract({
+              address: vaultAddress,
+              abi: CELESTOR_VAULT_ABI,
+              functionName: "getCardBalance",
+              args: [BigInt(order.token_id)],
+            });
 
-      balances[String(order.token_id)] = formatEther(balance as bigint);
+            balances[String(order.token_id)] = formatEther(balance as bigint);
+          }
+        }
+
+        setVaultBalances(balances);
+      }
+    } catch (error) {
+      console.error("Dashboard load failed:", error);
+    } finally {
+      setIsCheckingAuth(false);
     }
-  }
+  };
 
-  setVaultBalances(balances);
-}
-    };
-
-    loadDashboard();
-  }, []);
+  loadDashboard();
+}, [router, publicClient, vaultAddress]);
 
   const reloadCard = async () => {
   if (!selectedTokenId) return;
@@ -103,6 +122,22 @@ const withdrawCard = async () => {
 
   alert("Withdrawal successful");
 };
+
+if (isCheckingAuth) {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-black px-6 text-white">
+      <div className="text-center">
+        <p className="text-sm font-bold uppercase tracking-[0.3em] text-yellow-300">
+          Celestor
+        </p>
+        <h1 className="mt-4 text-3xl font-black">Loading dashboard...</h1>
+        <p className="mt-3 text-zinc-400">
+          Checking your account session.
+        </p>
+      </div>
+    </main>
+  );
+}
 
   return (
     <main className="min-h-screen bg-black p-6 text-white">

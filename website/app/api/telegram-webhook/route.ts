@@ -39,6 +39,7 @@ type CardRecord = {
   wallet_address: string;
   tx_hash: string | null;
   created_at: string;
+  telegram_active?: boolean;
 };
 
 const getNumericHash = (value: string) => {
@@ -348,7 +349,29 @@ export async function POST(req: Request) {
           return NextResponse.json({ ok: true });
         }
 
-        const cards = await getVerifiedCardsForChat(chatId);
+        const { data: activeCards, error: activeCardsError } = await supabaseAdmin
+  .from("cards")
+  .select(
+    "id, user_id, order_id, card_type, status, telegram_code, token_id, wallet_address, tx_hash, created_at, telegram_active"
+  )
+  .eq("telegram_chat_id", String(chatId))
+  .eq("telegram_verified", true)
+  .eq("telegram_active", true)
+  .order("created_at", { ascending: false })
+  .limit(10);
+
+if (activeCardsError) {
+  console.error("Active card lookup failed:", activeCardsError);
+
+  await sendMessage(
+    chatId,
+    "❌ Could not load your active card. Please try again."
+  );
+
+  return NextResponse.json({ ok: true });
+}
+
+const cards = (activeCards || []) as CardRecord[];
 
         if (cards.length === 0) {
           await sendMessage(
@@ -493,14 +516,23 @@ Balance: Could not read balance`;
     const primaryCard = matchingCards[0] as CardRecord;
     const walletAddress = primaryCard.wallet_address;
 
-    const { error: verifyError } = await supabaseAdmin
-      .from("cards")
-      .update({
-        telegram_verified: true,
-        telegram_verified_at: new Date().toISOString(),
-        telegram_chat_id: String(chatId),
-      })
-      .eq("wallet_address", walletAddress);
+    await supabaseAdmin
+  .from("cards")
+  .update({
+    telegram_active: false,
+  })
+  .eq("telegram_chat_id", String(chatId));
+
+const { error: verifyError } = await supabaseAdmin
+  .from("cards")
+  .update({
+    telegram_verified: true,
+    telegram_verified_at: new Date().toISOString(),
+    telegram_chat_id: String(chatId),
+    telegram_active: true,
+  })
+  .eq("wallet_address", walletAddress)
+  .eq("telegram_code", normalizedCode);
 
     if (verifyError) {
       console.error("Telegram verification update failed:", verifyError);

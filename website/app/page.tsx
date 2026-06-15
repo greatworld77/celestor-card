@@ -69,12 +69,12 @@ export default function Home() {
   const [selectedCard, setSelectedCard] = useState<"virtual" | "physical" | "free" | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
 const [authMode, setAuthMode] = useState<"signup" | "login">("signup");
-const [authEmail, setAuthEmail] = useState("");
-const [authPassword, setAuthPassword] = useState("");
 const [authMessage, setAuthMessage] = useState("");
 const [userEmail, setUserEmail] = useState<string | null>(null);
 const [fullName, setFullName] = useState("");
 const [userName, setUserName] = useState<string | null>(null);
+const [orderFullName, setOrderFullName] = useState("");
+const [isCreatingOrder, setIsCreatingOrder] = useState(false);
 
 const [totalCards, setTotalCards] = useState(0);
 const [virtualCards, setVirtualCards] = useState(0);
@@ -106,6 +106,7 @@ useEffect(() => {
         .single();
 
       setUserName(profile?.full_name ?? null);
+setOrderFullName(profile?.full_name ?? "");
     }
   };
 
@@ -124,8 +125,10 @@ useEffect(() => {
         .single();
 
       setUserName(profile?.full_name ?? null);
+setOrderFullName(profile?.full_name ?? "");
     } else {
       setUserName(null);
+      setOrderFullName("");
     }
   });
 
@@ -177,10 +180,11 @@ useEffect(() => {
   }
 }, [userEmail, selectedCard]);
 const createOrder = async () => {
-  if (!selectedCard) return;
+  if (!selectedCard || isCreatingOrder) return;
 
   if (!userEmail) {
     alert("Please login first.");
+    setAuthOpen(true);
     return;
   }
 
@@ -189,155 +193,196 @@ const createOrder = async () => {
     return;
   }
 
-  const { data: userData } = await supabase.auth.getUser();
+  if (selectedCard === "physical") {
+    if (!orderFullName.trim()) {
+      alert("Please enter the recipient full name.");
+      return;
+    }
 
-  if (!userData.user) {
-    alert("User not found.");
-    return;
-  }
-
-  if (selectedCard === "free") {
-  const { data: existingFreeMint } = await supabase
-    .from("cards")
-    .select("id")
-    .eq("wallet_address", address)
-    .eq("card_type", "free")
-    .limit(1);
-
-  if (existingFreeMint && existingFreeMint.length > 0) {
-    alert("This wallet has already claimed the Free NFT Card.");
-    return;
-  }
-}
-
-  if (selectedCard === "virtual") {
-    const { count } = await supabase
-      .from("cards")
-      .select("*", { count: "exact", head: true })
-      .eq("wallet_address", address)
-      .eq("card_type", "virtual");
-
-    if ((count ?? 0) >= 5) {
-      alert("Maximum 5 Virtual Cards per wallet.");
+    if (
+      !shippingAddress.trim() ||
+      !shippingCity.trim() ||
+      !shippingCountry.trim()
+    ) {
+      alert("Please complete the shipping address, city, and country.");
       return;
     }
   }
 
-  if (selectedCard === "physical") {
-    const { count } = await supabase
-      .from("cards")
-      .select("*", { count: "exact", head: true })
-      .eq("wallet_address", address)
-      .eq("card_type", "physical");
+  setIsCreatingOrder(true);
 
-    if ((count ?? 0) >= 10) {
-      alert("Maximum 10 Physical Cards per wallet.");
+  try {
+    const { data: userData } = await supabase.auth.getUser();
+
+    if (!userData.user) {
+      alert("User not found.");
       return;
     }
+
+    if (selectedCard === "free") {
+      const { data: existingFreeMint } = await supabase
+        .from("cards")
+        .select("id")
+        .eq("wallet_address", address)
+        .eq("card_type", "free")
+        .limit(1);
+
+      if (existingFreeMint && existingFreeMint.length > 0) {
+        alert("This wallet has already claimed the Free NFT Card.");
+        return;
+      }
+    }
+
+    if (selectedCard === "virtual") {
+      const { count } = await supabase
+        .from("cards")
+        .select("*", { count: "exact", head: true })
+        .eq("wallet_address", address)
+        .eq("card_type", "virtual");
+
+      if ((count ?? 0) >= 5) {
+        alert("Maximum 5 Virtual Cards per wallet.");
+        return;
+      }
+    }
+
+    if (selectedCard === "physical") {
+      const { count } = await supabase
+        .from("cards")
+        .select("*", { count: "exact", head: true })
+        .eq("wallet_address", address)
+        .eq("card_type", "physical");
+
+      if ((count ?? 0) >= 10) {
+        alert("Maximum 10 Physical Cards per wallet.");
+        return;
+      }
+    }
+
+    const normalizedCouponCode = couponCode.trim();
+    let txHash = "";
+
+    if (selectedCard === "free") {
+      txHash = await writeContractAsync({
+        address: contractAddress,
+        abi: CELESTOR_CARD_ABI,
+        functionName: "mintFree",
+      });
+    }
+
+    if (selectedCard === "virtual") {
+      txHash = await writeContractAsync({
+        address: contractAddress,
+        abi: CELESTOR_CARD_ABI,
+        functionName: "mintVirtual",
+        args: [normalizedCouponCode],
+        value: parseEther("0.001"),
+      });
+    }
+
+    if (selectedCard === "physical") {
+      txHash = await writeContractAsync({
+        address: contractAddress,
+        abi: CELESTOR_CARD_ABI,
+        functionName: "mintPhysical",
+        args: [normalizedCouponCode],
+        value: parseEther("0.01"),
+      });
+    }
+
+    let tokenId = "";
+
+    if (txHash && publicClient) {
+      const receipt = await publicClient.waitForTransactionReceipt({
+        hash: txHash as `0x${string}`,
+      });
+
+      const transferLog = receipt.logs.find(
+        (log) =>
+          log.address.toLowerCase() === contractAddress.toLowerCase() &&
+          log.topics[0] ===
+            "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+      );
+
+      if (transferLog?.topics?.[3]) {
+        tokenId = BigInt(transferLog.topics[3]).toString();
+      }
+    }
+
+    const orderId = `CRC-${selectedCard.toUpperCase()}-${Date.now()}`;
+
+    const telegramCode =
+      "TG-" + Math.random().toString(36).substring(2, 10).toUpperCase();
+
+    const { error } = await supabase.from("cards").insert({
+      user_id: userData.user.id,
+      wallet_address: address,
+      card_type: selectedCard,
+      order_id: orderId,
+      telegram_code: telegramCode,
+      tx_hash: txHash,
+      token_id: tokenId,
+      coupon_code: normalizedCouponCode,
+      status: "pending",
+    });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    if (selectedCard === "physical") {
+      const { error: shippingError } = await supabase
+        .from("shipping_addresses")
+        .insert({
+          user_id: userData.user.id,
+          card_order_id: orderId,
+          full_name: orderFullName.trim() || userName || "Celestor User",
+          email: userEmail,
+          shipping_address: shippingAddress.trim(),
+          city: shippingCity.trim(),
+          country: shippingCountry.trim(),
+        });
+
+      if (shippingError) {
+        throw new Error(shippingError.message);
+      }
+    }
+
+    await fetch("/api/send-order-email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        email: userEmail,
+        name: orderFullName.trim() || userName || "Celestor User",
+        orderId,
+        telegramCode,
+        cardType: selectedCard,
+      }),
+    });
+
+    alert(
+      `Order created successfully!\n\nOrder ID: ${orderId}\nTelegram Code: ${telegramCode}`
+    );
+
+    setSelectedCard(null);
+    setShippingAddress("");
+    setShippingCity("");
+    setShippingCountry("");
+    setCouponCode("");
+  } catch (error) {
+    console.error(error);
+
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Something went wrong while creating your order.";
+
+    alert(message);
+  } finally {
+    setIsCreatingOrder(false);
   }
-
-  let txHash = "";
-
-if (selectedCard === "free") {
-  txHash = await writeContractAsync({
-    address: contractAddress,
-    abi: CELESTOR_CARD_ABI,
-    functionName: "mintFree",
-  });
-}
-
-if (selectedCard === "virtual") {
-  txHash = await writeContractAsync({
-    address: contractAddress,
-    abi: CELESTOR_CARD_ABI,
-    functionName: "mintVirtual",
-    args: [couponCode],
-    value: parseEther("0.001"),
-  });
-}
-
-if (selectedCard === "physical") {
-  txHash = await writeContractAsync({
-    address: contractAddress,
-    abi: CELESTOR_CARD_ABI,
-    functionName: "mintPhysical",
-    args: [couponCode],
-    value: parseEther("0.01"),
-  });
-}
-
-let tokenId = "";
-
-if (txHash && publicClient) {
-  const receipt = await publicClient.waitForTransactionReceipt({
-    hash: txHash as `0x${string}`,
-  });
-
-  const transferLog = receipt.logs.find(
-    (log) =>
-      log.address.toLowerCase() === contractAddress.toLowerCase() &&
-      log.topics[0] ===
-        "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
-  );
-
-  if (transferLog?.topics?.[3]) {
-    tokenId = BigInt(transferLog.topics[3]).toString();
-  }
-}
-
-  const orderId = `CRC-${selectedCard.toUpperCase()}-${Date.now()}`;
-
-  const telegramCode =
-  "TG-" + Math.random().toString(36).substring(2, 10).toUpperCase();
-
-  const { error } = await supabase.from("cards").insert({
-    user_id: userData.user.id,
-    wallet_address: address,
-    card_type: selectedCard,
-    order_id: orderId,
-    telegram_code: telegramCode,
-    tx_hash: txHash,
-    token_id: tokenId,
-    coupon_code: couponCode,
-    status: "pending",
-  });
-
-  if (error) {
-    alert(error.message);
-    return;
-  }
-
-  if (selectedCard === "physical") {
-  await supabase.from("shipping_addresses").insert({
-    user_id: userData.user.id,
-    card_order_id: orderId,
-    full_name: userName,
-    email: userEmail,
-    shipping_address: shippingAddress,
-    city: shippingCity,
-    country: shippingCountry,
-  });
-}
-
-  await fetch("/api/send-order-email", {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-  },
-  body: JSON.stringify({
-    email: userEmail,
-    name: userName || "Celestor User",
-    orderId,
-    telegramCode,
-    cardType: selectedCard,
-  }),
-});
-
-alert(
-  `Order created successfully!\n\nOrder ID: ${orderId}\nTelegram Code: ${telegramCode}`
-);
-
-setSelectedCard(null);
 };
 
 return (
@@ -759,23 +804,33 @@ return (
       </div>
 
       <div className="space-y-4">
+  {userEmail ? (
+    <div className="rounded-2xl border border-white/10 bg-black p-4 text-sm text-zinc-300">
+      <p className="font-bold text-white">Ordering as</p>
+      <p className="mt-1">{userName || "Celestor User"}</p>
+      <p className="text-zinc-500">{userEmail}</p>
+    </div>
+  ) : (
+    <button
+      type="button"
+      onClick={() => setAuthOpen(true)}
+      className="w-full rounded-xl border border-yellow-400/30 bg-yellow-400/10 px-4 py-3 text-left text-sm font-bold text-yellow-300"
+    >
+      Login or create an account before ordering.
+    </button>
+  )}
 
-        <input
-          type="text"
-          placeholder="Full Name"
-          className="w-full rounded-xl border border-white/10 bg-black px-4 py-3"
-        />
+  {selectedCard === "physical" && (
+          <>
 
-        <input
-  type="email"
-  placeholder="Email Address"
-  value={authEmail}
-  onChange={(e) => setAuthEmail(e.target.value)}
+          <input
+  type="text"
+  placeholder="Recipient Full Name"
+  value={orderFullName}
+  onChange={(e) => setOrderFullName(e.target.value)}
   className="w-full rounded-xl border border-white/10 bg-black px-4 py-3"
 />
 
-        {selectedCard === "physical" && (
-          <>
             <input
   type="text"
   placeholder="Shipping Address"
@@ -812,9 +867,10 @@ return (
 
         <button
   onClick={createOrder}
-  className="mt-4 w-full rounded-full bg-white py-4 font-black text-black"
+  disabled={isCreatingOrder}
+  className="mt-4 w-full rounded-full bg-white py-4 font-black text-black disabled:cursor-not-allowed disabled:opacity-60"
 >
-  Continue
+  {isCreatingOrder ? "Processing..." : "Continue"}
 </button>
 
       </div>

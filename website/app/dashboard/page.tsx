@@ -20,6 +20,18 @@ export default function Dashboard() {
 const [withdrawAmount, setWithdrawAmount] = useState("");
 const [selectedTokenId, setSelectedTokenId] = useState<string | null>(null);
 const [vaultBalances, setVaultBalances] = useState<Record<string, string>>({});
+const [notice, setNotice] = useState<{
+  type: "success" | "error" | "info";
+  message: string;
+} | null>(null);
+
+const showNotice = (
+  message: string,
+  type: "success" | "error" | "info" = "info"
+) => {
+  setNotice({ type, message });
+};
+
   const { writeContractAsync } = useWriteContract();
   const publicClient = usePublicClient();
 
@@ -95,12 +107,12 @@ const vaultAddress = env.CELESTOR_VAULT_CONTRACT as `0x${string}`;
 
   const reloadCard = async () => {
   if (!selectedTokenId) {
-    alert("Please select a card first.");
+    showNotice("Please select a card first.", "error");
     return;
   }
 
   if (!reloadAmount || Number(reloadAmount) <= 0) {
-    alert("Please enter a valid reload amount.");
+    showNotice("Please enter a valid reload amount.", "error");
     return;
   }
 
@@ -113,22 +125,22 @@ const vaultAddress = env.CELESTOR_VAULT_CONTRACT as `0x${string}`;
       value: parseEther(reloadAmount),
     });
 
-    alert("Reload successful");
+    showNotice("Reload successful.", "success");
     setReloadAmount("");
   } catch (error) {
     console.error(error);
-    alert("Reload failed. Please try again.");
+    showNotice("Reload failed. Please try again.", "error");
   }
 };
 
 const withdrawCard = async () => {
   if (!selectedTokenId) {
-    alert("Please select a card first.");
+    showNotice("Please select a card first.", "error");
     return;
   }
 
   if (!withdrawAmount || Number(withdrawAmount) <= 0) {
-    alert("Please enter a valid withdrawal amount.");
+    showNotice("Please enter a valid withdrawal amount.", "error");
     return;
   }
 
@@ -140,13 +152,23 @@ const withdrawCard = async () => {
       args: [BigInt(selectedTokenId), parseEther(withdrawAmount)],
     });
 
-    alert("Withdrawal successful");
+    showNotice("Withdrawal successful.", "success");
     setWithdrawAmount("");
   } catch (error) {
     console.error(error);
-    alert("Withdrawal failed. Please try again.");
+    showNotice("Withdrawal failed. Please try again.", "error");
   }
 };
+
+useEffect(() => {
+  if (!notice) return;
+
+  const timer = window.setTimeout(() => {
+    setNotice(null);
+  }, 5000);
+
+  return () => window.clearTimeout(timer);
+}, [notice]);
 
 if (isCheckingAuth) {
   return (
@@ -166,6 +188,38 @@ if (isCheckingAuth) {
 
   return (
     <main className="min-h-screen bg-black p-6 text-white">
+    {notice && (
+  <div className="fixed right-4 top-6 z-[80] w-[calc(100%-2rem)] max-w-md rounded-2xl border border-white/10 bg-zinc-950 p-4 shadow-2xl">
+    <div className="flex items-start justify-between gap-4">
+      <div>
+        <p
+          className={`text-sm font-bold uppercase tracking-[0.25em] ${
+            notice.type === "success"
+              ? "text-green-300"
+              : notice.type === "error"
+              ? "text-red-300"
+              : "text-yellow-300"
+          }`}
+        >
+          {notice.type}
+        </p>
+
+        <p className="mt-2 text-sm leading-6 text-zinc-200">
+          {notice.message}
+        </p>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => setNotice(null)}
+        className="rounded-full border border-white/10 px-3 py-1 text-sm text-zinc-400 hover:text-white"
+      >
+        ×
+      </button>
+    </div>
+  </div>
+)}
+
       <div className="mx-auto max-w-6xl">
         <a href="/" className="text-sm text-yellow-300">
           ← Back to Home

@@ -416,6 +416,16 @@ showNotice("Order created successfully.", "success");
   }
 };
 
+useEffect(() => {
+  if (!notice) return;
+
+  const timer = window.setTimeout(() => {
+    setNotice(null);
+  }, 5000);
+
+  return () => window.clearTimeout(timer);
+}, [notice]);
+
 return (
 
 

@@ -7,6 +7,7 @@ import { useAccount, useChainId, useSwitchChain, useWriteContract } from "wagmi"
 import { sepolia } from "wagmi/chains";
 import { CELESTOR_CARD_ABI } from "../../lib/contracts/CelestorCardABI";
 import { env } from "../../lib/env";
+import AppNotice, { type AppNoticeData } from "../../components/AppNotice";
 
 export default function AdminPage() {
   const [orders, setOrders] = useState<any[]>([]);
@@ -26,10 +27,7 @@ const { writeContractAsync } = useWriteContract();
 
 const isWrongNetwork = isConnected && chainId !== sepolia.id;
 const [coupons, setCoupons] = useState<any[]>([]);
-const [notice, setNotice] = useState<{
-  type: "success" | "error" | "info";
-  message: string;
-} | null>(null);
+const [notice, setNotice] = useState<AppNoticeData | null>(null);
 
 const showNotice = (
   message: string,
@@ -265,37 +263,7 @@ if (!allowed) {
 
   return (
     <main className="min-h-screen bg-black p-6 text-white">
-    {notice && (
-  <div className="fixed right-4 top-6 z-[80] w-[calc(100%-2rem)] max-w-md rounded-2xl border border-white/10 bg-zinc-950 p-4 shadow-2xl">
-    <div className="flex items-start justify-between gap-4">
-      <div>
-        <p
-          className={`text-sm font-bold uppercase tracking-[0.25em] ${
-            notice.type === "success"
-              ? "text-green-300"
-              : notice.type === "error"
-              ? "text-red-300"
-              : "text-yellow-300"
-          }`}
-        >
-          {notice.type}
-        </p>
-
-        <p className="mt-2 text-sm leading-6 text-zinc-200">
-          {notice.message}
-        </p>
-      </div>
-
-      <button
-        type="button"
-        onClick={() => setNotice(null)}
-        className="rounded-full border border-white/10 px-3 py-1 text-sm text-zinc-400 hover:text-white"
-      >
-        ×
-      </button>
-    </div>
-  </div>
-)}
+    <AppNotice notice={notice} onClose={() => setNotice(null)} />
 
 {isWrongNetwork && (
   <div className="mb-6 rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm text-red-200">

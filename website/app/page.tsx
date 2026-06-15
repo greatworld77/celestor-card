@@ -14,6 +14,7 @@ import { sepolia } from "wagmi/chains";
 import { parseEther } from "viem";
 import { CELESTOR_CARD_ABI } from "../lib/contracts/CelestorCardABI";
 import { env } from "../lib/env";
+import AppNotice, { type AppNoticeData } from "../components/AppNotice";
 
 const processSteps = [
   {
@@ -94,10 +95,7 @@ const [shippingAddress, setShippingAddress] = useState("");
 const [shippingCity, setShippingCity] = useState("");
 const [shippingCountry, setShippingCountry] = useState("");
 const [couponCode, setCouponCode] = useState("");
-const [notice, setNotice] = useState<{
-  type: "success" | "error" | "info";
-  message: string;
-} | null>(null);
+const [notice, setNotice] = useState<AppNoticeData | null>(null);
 
 const [orderSuccess, setOrderSuccess] = useState<{
   orderId: string;
@@ -468,37 +466,11 @@ return (
 
 
     <main className="min-h-screen overflow-hidden text-white">
-    {notice && (
-  <div className="fixed right-4 top-24 z-[80] w-[calc(100%-2rem)] max-w-md rounded-2xl border border-white/10 bg-zinc-950 p-4 shadow-2xl">
-    <div className="flex items-start justify-between gap-4">
-      <div>
-        <p
-          className={`text-sm font-bold uppercase tracking-[0.25em] ${
-            notice.type === "success"
-              ? "text-green-300"
-              : notice.type === "error"
-              ? "text-red-300"
-              : "text-yellow-300"
-          }`}
-        >
-          {notice.type}
-        </p>
-
-        <p className="mt-2 text-sm leading-6 text-zinc-200">
-          {notice.message}
-        </p>
-      </div>
-
-      <button
-        type="button"
-        onClick={() => setNotice(null)}
-        className="rounded-full border border-white/10 px-3 py-1 text-sm text-zinc-400 hover:text-white"
-      >
-        ×
-      </button>
-    </div>
-  </div>
-)}
+    <AppNotice
+  notice={notice}
+  onClose={() => setNotice(null)}
+  offset="home"
+/>
 
       <nav className="fixed top-0 z-50 w-full border-b border-white/10 bg-black/50 backdrop-blur-2xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5">

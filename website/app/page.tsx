@@ -3,8 +3,14 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
-import { useAccount } from "wagmi";
-import { useWriteContract, usePublicClient } from "wagmi";
+import {
+  useAccount,
+  useWriteContract,
+  usePublicClient,
+  useChainId,
+  useSwitchChain,
+} from "wagmi";
+import { sepolia } from "wagmi/chains";
 import { parseEther } from "viem";
 import { CELESTOR_CARD_ABI } from "../lib/contracts/CelestorCardABI";
 import { env } from "../lib/env";
@@ -107,8 +113,12 @@ const showNotice = (
 };
 
 const { address, isConnected } = useAccount();
+const chainId = useChainId();
+const { switchChainAsync, isPending: isSwitchingChain } = useSwitchChain();
 const { writeContractAsync } = useWriteContract();
 const publicClient = usePublicClient();
+
+const isWrongNetwork = isConnected && chainId !== sepolia.id;
 
 const contractAddress = env.CELESTOR_CARD_CONTRACT as `0x${string}`;
 useEffect(() => {
@@ -210,6 +220,12 @@ setAuthOpen(true);
     showNotice("Please connect your wallet first.", "error");
     return;
   }
+
+  const networkReady = await ensureSepoliaNetwork();
+
+if (!networkReady) {
+  return;
+}
 
   if (selectedCard === "physical") {
     if (!orderFullName.trim()) {
@@ -413,6 +429,27 @@ showNotice("Order created successfully.", "success");
     showNotice(message, "error");
   } finally {
     setIsCreatingOrder(false);
+  }
+};
+
+const ensureSepoliaNetwork = async () => {
+  if (!isConnected) {
+    showNotice("Please connect your wallet first.", "error");
+    return false;
+  }
+
+  if (chainId === sepolia.id) {
+    return true;
+  }
+
+  try {
+    await switchChainAsync({ chainId: sepolia.id });
+    showNotice("Wallet switched to Sepolia.", "success");
+    return true;
+  } catch (error) {
+    console.error(error);
+    showNotice("Please switch your wallet network to Sepolia.", "error");
+    return false;
   }
 };
 
@@ -938,12 +975,34 @@ return (
   className="w-full rounded-xl border border-white/10 bg-black px-4 py-3"
 />
 
+{isWrongNetwork && (
+  <div className="rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm text-red-200">
+    <p className="font-bold text-red-100">Wrong network</p>
+    <p className="mt-1">
+      Celestor currently runs on Sepolia testnet. Switch your wallet to Sepolia before continuing.
+    </p>
+
+    <button
+      type="button"
+      onClick={ensureSepoliaNetwork}
+      disabled={isSwitchingChain}
+      className="mt-3 rounded-full bg-red-300 px-4 py-2 font-black text-black disabled:opacity-60"
+    >
+      {isSwitchingChain ? "Switching..." : "Switch to Sepolia"}
+    </button>
+  </div>
+)}
+
         <button
   onClick={createOrder}
-  disabled={isCreatingOrder}
+  disabled={isCreatingOrder || isWrongNetwork}
   className="mt-4 w-full rounded-full bg-white py-4 font-black text-black disabled:cursor-not-allowed disabled:opacity-60"
 >
-  {isCreatingOrder ? "Processing..." : "Continue"}
+  {isCreatingOrder
+  ? "Processing..."
+  : isWrongNetwork
+  ? "Switch to Sepolia first"
+  : "Continue"}
 </button>
 
       </div>

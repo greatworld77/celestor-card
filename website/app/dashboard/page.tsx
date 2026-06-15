@@ -5,7 +5,14 @@ import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 import { parseEther, formatEther } from "viem";
 import { CELESTOR_VAULT_ABI } from "../../lib/contracts/CelestorVaultABI";
-import { useWriteContract, usePublicClient } from "wagmi";
+import {
+  useAccount,
+  useChainId,
+  usePublicClient,
+  useSwitchChain,
+  useWriteContract,
+} from "wagmi";
+import { sepolia } from "wagmi/chains";
 import { env } from "../../lib/env";
 
 export default function Dashboard() {
@@ -32,8 +39,13 @@ const showNotice = (
   setNotice({ type, message });
 };
 
-  const { writeContractAsync } = useWriteContract();
-  const publicClient = usePublicClient();
+  const { isConnected } = useAccount();
+const chainId = useChainId();
+const { switchChainAsync, isPending: isSwitchingChain } = useSwitchChain();
+const { writeContractAsync } = useWriteContract();
+const publicClient = usePublicClient();
+
+const isWrongNetwork = isConnected && chainId !== sepolia.id;
 
 const vaultAddress = env.CELESTOR_VAULT_CONTRACT as `0x${string}`;
 
@@ -116,6 +128,12 @@ const vaultAddress = env.CELESTOR_VAULT_CONTRACT as `0x${string}`;
     return;
   }
 
+  const networkReady = await ensureSepoliaNetwork();
+
+if (!networkReady) {
+  return;
+}
+
   try {
     await writeContractAsync({
       address: vaultAddress,
@@ -144,6 +162,12 @@ const withdrawCard = async () => {
     return;
   }
 
+  const networkReady = await ensureSepoliaNetwork();
+
+if (!networkReady) {
+  return;
+}
+
   try {
     await writeContractAsync({
       address: vaultAddress,
@@ -157,6 +181,27 @@ const withdrawCard = async () => {
   } catch (error) {
     console.error(error);
     showNotice("Withdrawal failed. Please try again.", "error");
+  }
+};
+
+const ensureSepoliaNetwork = async () => {
+  if (!isConnected) {
+    showNotice("Please connect your wallet first.", "error");
+    return false;
+  }
+
+  if (chainId === sepolia.id) {
+    return true;
+  }
+
+  try {
+    await switchChainAsync({ chainId: sepolia.id });
+    showNotice("Wallet switched to Sepolia.", "success");
+    return true;
+  } catch (error) {
+    console.error(error);
+    showNotice("Please switch your wallet network to Sepolia.", "error");
+    return false;
   }
 };
 
@@ -215,6 +260,28 @@ if (isCheckingAuth) {
         className="rounded-full border border-white/10 px-3 py-1 text-sm text-zinc-400 hover:text-white"
       >
         ×
+      </button>
+    </div>
+  </div>
+)}
+
+{isWrongNetwork && (
+  <div className="mb-6 rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm text-red-200">
+    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div>
+        <p className="font-bold text-red-100">Wrong wallet network</p>
+        <p className="mt-1">
+          Reload and withdrawal actions require Sepolia testnet.
+        </p>
+      </div>
+
+      <button
+        type="button"
+        onClick={ensureSepoliaNetwork}
+        disabled={isSwitchingChain}
+        className="rounded-full bg-red-300 px-4 py-2 font-black text-black disabled:opacity-60"
+      >
+        {isSwitchingChain ? "Switching..." : "Switch to Sepolia"}
       </button>
     </div>
   </div>

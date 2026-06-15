@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
 
-import { useWriteContract } from "wagmi";
+import { useAccount, useChainId, useSwitchChain, useWriteContract } from "wagmi";
+import { sepolia } from "wagmi/chains";
 import { CELESTOR_CARD_ABI } from "../../lib/contracts/CelestorCardABI";
 import { env } from "../../lib/env";
 
@@ -18,7 +19,12 @@ const [loading, setLoading] = useState(true);
 const [couponInput, setCouponInput] = useState("");
 const [discountInput, setDiscountInput] = useState("");
 const [couponActive, setCouponActive] = useState(true);
+const { isConnected } = useAccount();
+const chainId = useChainId();
+const { switchChainAsync, isPending: isSwitchingChain } = useSwitchChain();
 const { writeContractAsync } = useWriteContract();
+
+const isWrongNetwork = isConnected && chainId !== sepolia.id;
 const [coupons, setCoupons] = useState<any[]>([]);
 const [notice, setNotice] = useState<{
   type: "success" | "error" | "info";
@@ -122,6 +128,12 @@ const saveCoupon = async () => {
     return;
   }
 
+  const networkReady = await ensureSepoliaNetwork();
+
+if (!networkReady) {
+  return;
+}
+
   await writeContractAsync({
     address: contractAddress,
     abi: CELESTOR_CARD_ABI,
@@ -145,6 +157,27 @@ setCoupons((prev) => [
 ]);
 
   showNotice("Coupon updated successfully.", "success");
+};
+
+const ensureSepoliaNetwork = async () => {
+  if (!isConnected) {
+    showNotice("Please connect your admin wallet first.", "error");
+    return false;
+  }
+
+  if (chainId === sepolia.id) {
+    return true;
+  }
+
+  try {
+    await switchChainAsync({ chainId: sepolia.id });
+    showNotice("Wallet switched to Sepolia.", "success");
+    return true;
+  } catch (error) {
+    console.error(error);
+    showNotice("Please switch your wallet network to Sepolia.", "error");
+    return false;
+  }
 };
 
 useEffect(() => {
@@ -263,6 +296,29 @@ if (!allowed) {
     </div>
   </div>
 )}
+
+{isWrongNetwork && (
+  <div className="mb-6 rounded-2xl border border-red-400/30 bg-red-400/10 p-4 text-sm text-red-200">
+    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div>
+        <p className="font-bold text-red-100">Wrong admin wallet network</p>
+        <p className="mt-1">
+          Coupon contract updates require Sepolia testnet.
+        </p>
+      </div>
+
+      <button
+        type="button"
+        onClick={ensureSepoliaNetwork}
+        disabled={isSwitchingChain}
+        className="rounded-full bg-red-300 px-4 py-2 font-black text-black disabled:opacity-60"
+      >
+        {isSwitchingChain ? "Switching..." : "Switch to Sepolia"}
+      </button>
+    </div>
+  </div>
+)}
+
       <div className="mx-auto max-w-7xl">
         <a href="/" className="text-sm text-yellow-300">
           ← Back to Home

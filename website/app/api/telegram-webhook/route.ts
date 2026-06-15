@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createPublicClient, formatEther, http } from "viem";
 import { sepolia } from "viem/chains";
 import { CELESTOR_VAULT_ABI } from "../../../lib/contracts/CelestorVaultABI";
+import { CELESTOR_LOAD_ABI } from "../../../lib/contracts/CelestorLoadABI";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -18,6 +19,9 @@ const TELEGRAM_WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET;
 
 const vaultAddress = process.env
   .NEXT_PUBLIC_CELESTOR_VAULT_CONTRACT as `0x${string}`;
+
+  const loadAddress = process.env
+  .NEXT_PUBLIC_CELESTOR_LOAD_CONTRACT as `0x${string}`;
 
 const publicClient = createPublicClient({
   chain: sepolia,
@@ -200,46 +204,69 @@ Wallet: ${card.wallet_address}`
           return NextResponse.json({ ok: true });
         }
 
-        const paidCards = cards.filter(
-          (card) => card.card_type !== "free" && card.token_id
-        );
-
-        if (paidCards.length === 0) {
-          await sendMessage(
-            chatId,
-            "💰 You have verified card access, but no paid card with a vault balance was found.\n\nFree NFT Cards do not have vault balances.",
-            dashboardKeyboard
-          );
-
-          return NextResponse.json({ ok: true });
-        }
-
         const balanceLines = await Promise.all(
-          paidCards.map(async (card, index) => {
-            try {
-              const rawBalance = await publicClient.readContract({
-                address: vaultAddress,
-                abi: CELESTOR_VAULT_ABI,
-                functionName: "getCardBalance",
-                args: [BigInt(card.token_id)],
-              });
+  cards.map(async (card, index) => {
+    if (!card.token_id) {
+      return `Card ${index + 1}
+Order ID: ${card.order_id}
+Type: ${card.card_type}
+Status: ${card.status}
+NFT Token ID: Pending
+Balance: Pending`;
+    }
 
-              return `Card ${index + 1}
+    try {
+      if (card.card_type === "free") {
+        const loadData = await publicClient.readContract({
+          address: loadAddress,
+          abi: CELESTOR_LOAD_ABI,
+          functionName: "getCardLoadData",
+          args: [BigInt(card.token_id)],
+        });
+
+        const [
+          realBalance,
+          promoBalance,
+          displayedBalance,
+          firstReloadBonusUsed,
+          unlocked,
+        ] = loadData as readonly [bigint, bigint, bigint, boolean, boolean];
+
+        return `Card ${index + 1}
+Order ID: ${card.order_id}
+Type: Free Mint Virtual Card
+Status: ${unlocked ? "Unlocked" : "Locked"}
+NFT Token ID: #${card.token_id}
+Displayed Balance: ${formatEther(displayedBalance)} ETH
+Promo Bonus: ${formatEther(promoBalance)} ETH
+Real Reloaded Balance: ${formatEther(realBalance)} ETH
+First Reload Bonus: ${firstReloadBonusUsed ? "Used" : "Available"}`;
+      }
+
+      const rawBalance = await publicClient.readContract({
+        address: vaultAddress,
+        abi: CELESTOR_VAULT_ABI,
+        functionName: "getCardBalance",
+        args: [BigInt(card.token_id)],
+      });
+
+      return `Card ${index + 1}
 Order ID: ${card.order_id}
 Type: ${card.card_type}
 Status: ${card.status}
 NFT Token ID: #${card.token_id}
 Balance: ${formatEther(rawBalance as bigint)} ETH`;
-            } catch (error) {
-              console.error("Balance read failed:", error);
+    } catch (error) {
+      console.error("Balance read failed:", error);
 
-              return `Card ${index + 1}
+      return `Card ${index + 1}
 Order ID: ${card.order_id}
+Type: ${card.card_type}
 NFT Token ID: #${card.token_id}
 Balance: Could not read balance`;
-            }
-          })
-        );
+    }
+  })
+);
 
         await sendMessage(
           chatId,

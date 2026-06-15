@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { createPublicClient, formatEther, http } from "viem";
+import { sepolia } from "viem/chains";
+import { CELESTOR_VAULT_ABI } from "../../../lib/contracts/CelestorVaultABI";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -12,6 +15,14 @@ const SITE_URL =
 const DASHBOARD_URL = `${SITE_URL}/dashboard`;
 
 const TELEGRAM_WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET;
+
+const vaultAddress = process.env
+  .NEXT_PUBLIC_CELESTOR_VAULT_CONTRACT as `0x${string}`;
+
+const publicClient = createPublicClient({
+  chain: sepolia,
+  transport: http(),
+});
 
 export async function POST(req: Request) {
   try {
@@ -50,6 +61,30 @@ export async function POST(req: Request) {
       });
     };
 
+    const answerCallbackQuery = async (
+      callbackQueryId: string,
+      message?: string
+    ) => {
+      await fetch(
+        `https://api.telegram.org/bot${botToken}/answerCallbackQuery`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            callback_query_id: callbackQueryId,
+            text: message,
+            show_alert: false,
+          }),
+        }
+      );
+    };
+
+    const dashboardKeyboard = {
+      inline_keyboard: [[{ text: "Open Dashboard", url: DASHBOARD_URL }]],
+    };
+
     const callback = update.callback_query;
 
     if (callback) {
@@ -57,33 +92,165 @@ export async function POST(req: Request) {
       const chatId = callback.message.chat.id;
 
       if (data === "reload") {
-        await sendMessage(chatId, "⬆️ Reload your Celestor Card from the dashboard.", {
-          inline_keyboard: [[{ text: "Open Dashboard", url: DASHBOARD_URL }]],
-        });
+        await answerCallbackQuery(callback.id);
+
+        await sendMessage(
+          chatId,
+          "⬆️ Reload your Celestor Card from the dashboard.",
+          dashboardKeyboard
+        );
+
+        return NextResponse.json({ ok: true });
       }
 
       if (data === "withdraw") {
-        await sendMessage(chatId, "💸 Withdraw from your Celestor Card from the dashboard.", {
-          inline_keyboard: [[{ text: "Open Dashboard", url: DASHBOARD_URL }]],
-        });
+        await answerCallbackQuery(callback.id);
+
+        await sendMessage(
+          chatId,
+          "💸 Withdraw from your Celestor Card from the dashboard.",
+          dashboardKeyboard
+        );
+
+        return NextResponse.json({ ok: true });
       }
 
       if (data === "my_card") {
-        await sendMessage(
-          chatId,
-          "💳 Send your Telegram Access Code again to view your verified card details."
-        );
+        await answerCallbackQuery(callback.id);
+
+        const { data: cards } = await supabaseAdmin
+          .from("cards")
+          .select(
+            "order_id, card_type, status, token_id, wallet_address, tx_hash"
+          )
+          .eq("telegram_chat_id", String(chatId))
+          .eq("telegram_verified", true)
+          .order("created_at", { ascending: false })
+          .limit(10);
+
+        if (!cards || cards.length === 0) {
+          await sendMessage(
+            chatId,
+            "💳 No verified Celestor card found for this Telegram chat.\n\nSend your Telegram Access Code from your order email to verify your card."
+          );
+
+          return NextResponse.json({ ok: true });
+        }
+
+        const cardLines = cards
+          .map(
+            (card, index) => `Card ${index + 1}
+Order ID: ${card.order_id}
+Type: ${card.card_type}
+Status: ${card.status}
+NFT Token ID: ${card.token_id || "Pending"}
+Wallet: ${card.wallet_address}`
+          )
+          .join("\n\n");
+
+        await sendMessage(chatId, `💳 Your Celestor Cards\n\n${cardLines}`, {
+          inline_keyboard: [
+            [
+              { text: "💰 Balance", callback_data: "balance" },
+              { text: "Open Dashboard", url: DASHBOARD_URL },
+            ],
+          ],
+        });
+
+        return NextResponse.json({ ok: true });
       }
 
       if (data === "balance") {
+        await answerCallbackQuery(callback.id, "Checking balance...");
+
+        if (!vaultAddress) {
+          await sendMessage(
+            chatId,
+            "❌ Vault contract address is missing. Please contact Celestor support."
+          );
+
+          return NextResponse.json({ ok: true });
+        }
+
+        const { data: cards, error } = await supabaseAdmin
+          .from("cards")
+          .select("order_id, card_type, status, token_id")
+          .eq("telegram_chat_id", String(chatId))
+          .eq("telegram_verified", true)
+          .order("created_at", { ascending: false })
+          .limit(10);
+
+        if (error) {
+          console.error("Telegram balance query failed:", error);
+
+          await sendMessage(
+            chatId,
+            "❌ Could not load your verified cards. Please try again."
+          );
+
+          return NextResponse.json({ ok: true });
+        }
+
+        if (!cards || cards.length === 0) {
+          await sendMessage(
+            chatId,
+            "💰 No verified card found for this Telegram chat.\n\nSend your Telegram Access Code first, then tap Balance again."
+          );
+
+          return NextResponse.json({ ok: true });
+        }
+
+        const paidCards = cards.filter(
+          (card) => card.card_type !== "free" && card.token_id
+        );
+
+        if (paidCards.length === 0) {
+          await sendMessage(
+            chatId,
+            "💰 You have verified card access, but no paid card with a vault balance was found.\n\nFree NFT Cards do not have vault balances.",
+            dashboardKeyboard
+          );
+
+          return NextResponse.json({ ok: true });
+        }
+
+        const balanceLines = await Promise.all(
+          paidCards.map(async (card, index) => {
+            try {
+              const rawBalance = await publicClient.readContract({
+                address: vaultAddress,
+                abi: CELESTOR_VAULT_ABI,
+                functionName: "getCardBalance",
+                args: [BigInt(card.token_id)],
+              });
+
+              return `Card ${index + 1}
+Order ID: ${card.order_id}
+Type: ${card.card_type}
+Status: ${card.status}
+NFT Token ID: #${card.token_id}
+Balance: ${formatEther(rawBalance as bigint)} ETH`;
+            } catch (error) {
+              console.error("Balance read failed:", error);
+
+              return `Card ${index + 1}
+Order ID: ${card.order_id}
+NFT Token ID: #${card.token_id}
+Balance: Could not read balance`;
+            }
+          })
+        );
+
         await sendMessage(
           chatId,
-          "💰 Balance checking from Telegram is coming next. For now, open your dashboard.",
-          {
-            inline_keyboard: [[{ text: "Open Dashboard", url: DASHBOARD_URL }]],
-          }
+          `💰 Celestor Card Balance\n\n${balanceLines.join("\n\n")}`,
+          dashboardKeyboard
         );
+
+        return NextResponse.json({ ok: true });
       }
+
+      await answerCallbackQuery(callback.id);
 
       return NextResponse.json({ ok: true });
     }
@@ -133,7 +300,7 @@ TG-ABC12345`,
       .from("cards")
       .select("*")
       .eq("telegram_code", normalizedCode)
-      .single();
+      .maybeSingle();
 
     if (!card) {
       await reply(
@@ -144,6 +311,13 @@ TG-ABC12345`,
     }
 
     if (card.telegram_verified) {
+      await supabaseAdmin
+        .from("cards")
+        .update({
+          telegram_chat_id: String(chatId),
+        })
+        .eq("id", card.id);
+
       await reply(
         `⚠️ This Telegram code has already been used.
 
@@ -151,7 +325,12 @@ Order ID: ${card.order_id}
 Card Type: ${card.card_type}
 Status: ${card.status}`,
         {
-          inline_keyboard: [[{ text: "Open Dashboard", url: DASHBOARD_URL }]],
+          inline_keyboard: [
+            [
+              { text: "💰 Balance", callback_data: "balance" },
+              { text: "Open Dashboard", url: DASHBOARD_URL },
+            ],
+          ],
         }
       );
 
@@ -163,6 +342,7 @@ Status: ${card.status}`,
       .update({
         telegram_verified: true,
         telegram_verified_at: new Date().toISOString(),
+        telegram_chat_id: String(chatId),
       })
       .eq("id", card.id);
 
@@ -182,7 +362,12 @@ ${card.token_id || "Pending"}
 Transaction:
 https://sepolia.etherscan.io/tx/${card.tx_hash}`,
       {
-        inline_keyboard: [[{ text: "Open Dashboard", url: DASHBOARD_URL }]],
+        inline_keyboard: [
+          [
+            { text: "💰 Balance", callback_data: "balance" },
+            { text: "Open Dashboard", url: DASHBOARD_URL },
+          ],
+        ],
       }
     );
 

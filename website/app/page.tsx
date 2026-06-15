@@ -69,6 +69,8 @@ export default function Home() {
   const [selectedCard, setSelectedCard] = useState<"virtual" | "physical" | "free" | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
 const [authMode, setAuthMode] = useState<"signup" | "login">("signup");
+const [authEmail, setAuthEmail] = useState("");
+const [authPassword, setAuthPassword] = useState("");
 const [authMessage, setAuthMessage] = useState("");
 const [userEmail, setUserEmail] = useState<string | null>(null);
 const [fullName, setFullName] = useState("");

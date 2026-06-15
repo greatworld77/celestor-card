@@ -143,12 +143,11 @@ useEffect(() => {
     const { data } = await supabase.auth.getUser();
 
     if (data.user) {
-      await supabase
-        .from("profiles")
-        .update({
-          wallet_address: address,
-        })
-        .eq("id", data.user.id);
+      await supabase.from("profiles").upsert({
+  id: data.user.id,
+  full_name: userName || "",
+  wallet_address: address,
+});
     }
   };
 
@@ -946,21 +945,19 @@ return (
           }
 
           if (authMode === "signup") {
-            const { data, error } = await supabase.auth.signUp({
-              email,
-              password,
-            });
+            const { error } = await supabase.auth.signUp({
+  email,
+  password,
+  options: {
+    data: {
+      full_name: fullName.trim(),
+    },
+  },
+});
 
-            if (error) {
+if (error) {
   setAuthMessage(error.message);
 } else {
-  if (data.user) {
-    await supabase.from("profiles").upsert({
-      id: data.user.id,
-      full_name: fullName,
-    });
-  }
-
   setAuthMessage(
     "Account created. Please check your email to verify your account."
   );

@@ -7,6 +7,7 @@ import { useAccount } from "wagmi";
 import { useWriteContract, usePublicClient } from "wagmi";
 import { parseEther } from "viem";
 import { CELESTOR_CARD_ABI } from "../lib/contracts/CelestorCardABI";
+import { env } from "../lib/env";
 
 const processSteps = [
   {
@@ -92,8 +93,7 @@ const { address, isConnected } = useAccount();
 const { writeContractAsync } = useWriteContract();
 const publicClient = usePublicClient();
 
-const contractAddress =
-  process.env.NEXT_PUBLIC_CELESTOR_CARD_CONTRACT as `0x${string}`;
+const contractAddress = env.CELESTOR_CARD_CONTRACT as `0x${string}`;
 useEffect(() => {
   const loadUser = async () => {
     const { data } = await supabase.auth.getUser();

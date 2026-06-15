@@ -6,6 +6,7 @@ import { supabase } from "../../lib/supabase";
 import { parseEther, formatEther } from "viem";
 import { CELESTOR_VAULT_ABI } from "../../lib/contracts/CelestorVaultABI";
 import { useWriteContract, usePublicClient } from "wagmi";
+import { env } from "../../lib/env";
 
 export default function Dashboard() {
   const router = useRouter();
@@ -22,8 +23,7 @@ const [vaultBalances, setVaultBalances] = useState<Record<string, string>>({});
   const { writeContractAsync } = useWriteContract();
   const publicClient = usePublicClient();
 
-const vaultAddress =
-  process.env.NEXT_PUBLIC_CELESTOR_VAULT_CONTRACT as `0x${string}`;
+const vaultAddress = env.CELESTOR_VAULT_CONTRACT as `0x${string}`;
 
   const total = orders.length;
   const virtual = orders.filter((o) => o.card_type === "virtual").length;

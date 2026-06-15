@@ -5,6 +5,7 @@ import { supabase } from "../../lib/supabase";
 
 import { useWriteContract } from "wagmi";
 import { CELESTOR_CARD_ABI } from "../../lib/contracts/CelestorCardABI";
+import { env } from "../../lib/env";
 
 export default function AdminPage() {
   const [orders, setOrders] = useState<any[]>([]);
@@ -20,10 +21,8 @@ const [couponActive, setCouponActive] = useState(true);
 const { writeContractAsync } = useWriteContract();
 const [coupons, setCoupons] = useState<any[]>([]);
 
-const contractAddress =
-  process.env.NEXT_PUBLIC_CELESTOR_CARD_CONTRACT as `0x${string}`;
-  const adminEmail =
-  process.env.NEXT_PUBLIC_ADMIN_EMAIL || "grove6027@gmail.com";
+const contractAddress = env.CELESTOR_CARD_CONTRACT as `0x${string}`;
+const adminEmail = env.ADMIN_EMAIL;
 
   const updateOrderStatus = async (id: string, status: string) => {
   const { error } = await supabase

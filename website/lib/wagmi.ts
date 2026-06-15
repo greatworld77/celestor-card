@@ -1,3 +1,4 @@
+import { env } from "./env";
 import { getDefaultConfig } from "@rainbow-me/rainbowkit";
 import {
   rainbowWallet,
@@ -9,7 +10,7 @@ import { mainnet, sepolia, base, baseSepolia } from "wagmi/chains";
 
 export const wagmiConfig = getDefaultConfig({
   appName: "Celestor Card",
-  projectId: process.env.NEXT_PUBLIC_REOWN_PROJECT_ID!,
+  projectId: env.REOWN_PROJECT_ID,
   chains: [mainnet, sepolia, base, baseSepolia],
   wallets: [
     {

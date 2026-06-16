@@ -156,8 +156,15 @@ useEffect(() => {
         .eq("id", data.user.id)
         .single();
 
-      setUserName(profile?.full_name ?? null);
-setOrderFullName(profile?.full_name ?? "");
+      const metadataName =
+  typeof data.user.user_metadata?.full_name === "string"
+    ? data.user.user_metadata.full_name.trim()
+    : "";
+
+const resolvedName = profile?.full_name || metadataName || "";
+
+setUserName(resolvedName || null);
+setOrderFullName(resolvedName);
     }
   };
 
@@ -175,8 +182,16 @@ setOrderFullName(profile?.full_name ?? "");
         .eq("id", session.user.id)
         .single();
 
-      setUserName(profile?.full_name ?? null);
-setOrderFullName(profile?.full_name ?? "");
+      const metadataName =
+  typeof session.user.user_metadata?.full_name === "string"
+    ? session.user.user_metadata.full_name.trim()
+    : "";
+
+const resolvedName = profile?.full_name || metadataName || "";
+
+setUserName(resolvedName || null);
+setOrderFullName(resolvedName);
+
     } else {
       setUserName(null);
       setOrderFullName("");
@@ -185,23 +200,33 @@ setOrderFullName(profile?.full_name ?? "");
 
   return () => subscription.unsubscribe();
 }, []);
+
 useEffect(() => {
   const saveWallet = async () => {
     if (!address || !userEmail) return;
 
     const { data } = await supabase.auth.getUser();
 
-    if (data.user) {
-      await supabase.from("profiles").upsert({
-  id: data.user.id,
-  full_name: userName || "",
-  wallet_address: address,
-});
-    }
+    if (!data.user) return;
+
+    const metadataName =
+      typeof data.user.user_metadata?.full_name === "string"
+        ? data.user.user_metadata.full_name.trim()
+        : "";
+
+    const cleanName = userName || metadataName || "";
+
+    await supabase.from("profiles").upsert({
+      id: data.user.id,
+      full_name: cleanName || null,
+      email: data.user.email ?? userEmail,
+      wallet_address: address,
+    });
   };
 
   saveWallet();
-}, [address, userEmail]);
+}, [address, userEmail, userName]);
+
 useEffect(() => {
   const loadCardCounts = async () => {
     const { data: userData } = await supabase.auth.getUser();
@@ -369,18 +394,28 @@ if (!networkReady) {
 
     const telegramCode =
       "TG-" + Math.random().toString(36).substring(2, 10).toUpperCase();
+      const metadataName =
+  typeof userData.user.user_metadata?.full_name === "string"
+    ? userData.user.user_metadata.full_name.trim()
+    : "";
+
+const cardHolderName =
+  selectedCard === "physical"
+    ? orderFullName.trim() || userName || metadataName || "Celestor User"
+    : userName || metadataName || fullName.trim() || "Celestor User";
 
     const { error } = await supabase.from("cards").insert({
-      user_id: userData.user.id,
-      wallet_address: address,
-      card_type: selectedCard,
-      order_id: orderId,
-      telegram_code: telegramCode,
-      tx_hash: txHash,
-      token_id: tokenId,
-      coupon_code: normalizedCouponCode,
-      status: "pending",
-    });
+  user_id: userData.user.id,
+  wallet_address: address,
+  card_type: selectedCard,
+  order_id: orderId,
+  telegram_code: telegramCode,
+  tx_hash: txHash,
+  token_id: tokenId,
+  coupon_code: normalizedCouponCode,
+  status: "pending",
+  card_holder_name: cardHolderName,
+});
 
     if (error) {
       throw new Error(error.message);
@@ -392,7 +427,7 @@ if (!networkReady) {
         .insert({
           user_id: userData.user.id,
           card_order_id: orderId,
-          full_name: orderFullName.trim() || userName || "Celestor User",
+          full_name: cardHolderName,
           email: userEmail,
           shipping_address: shippingAddress.trim(),
           city: shippingCity.trim(),
@@ -416,7 +451,7 @@ const emailResponse = await fetch("/api/send-order-email", {
   },
   body: JSON.stringify({
     email: userEmail,
-    name: orderFullName.trim() || userName || "Celestor User",
+    name: cardHolderName,
     orderId,
     telegramCode,
     cardType: selectedCard,
@@ -1063,35 +1098,54 @@ return (
           }
 
           if (authMode === "signup") {
-            if (authMode === "signup" && isBlockedEmailDomain(authEmail)) {
-  setAuthMessage(
-    "Temporary email addresses are not allowed. Please use a real email address."
-  );
-  showNotice(
-    "Temporary email addresses are not allowed. Please use a real email address.",
-    "error"
-  );
-  return;
-}
+  if (isBlockedEmailDomain(email)) {
+    setAuthMessage(
+      "Temporary email addresses are not allowed. Please use a real email address."
+    );
+    showNotice(
+      "Temporary email addresses are not allowed. Please use a real email address.",
+      "error"
+    );
+    return;
+  }
 
-            const { error } = await supabase.auth.signUp({
-  email,
-  password,
-  options: {
-    data: {
-      full_name: fullName.trim(),
+  const cleanFullName = fullName.trim();
+
+  if (!cleanFullName) {
+    setAuthMessage("Please enter your full name.");
+    return;
+  }
+
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      data: {
+        full_name: cleanFullName,
+      },
     },
-  },
-});
+  });
 
-if (error) {
-  setAuthMessage(error.message);
+  if (error) {
+    setAuthMessage(error.message);
+  } else {
+    if (data.user) {
+      await supabase.from("profiles").upsert({
+        id: data.user.id,
+        full_name: cleanFullName,
+        email,
+      });
+
+      setUserName(cleanFullName);
+      setOrderFullName(cleanFullName);
+    }
+
+    setAuthMessage(
+      "Account created. Please check your email to verify your account."
+    );
+  }
 } else {
-  setAuthMessage(
-    "Account created. Please check your email to verify your account."
-  );
-}
-          } else {
+
             const { error } = await supabase.auth.signInWithPassword({
               email,
               password,

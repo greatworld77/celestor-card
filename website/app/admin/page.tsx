@@ -170,48 +170,42 @@ const saveCoupon = async () => {
       args: [normalizedCode, BigInt(discountBps), couponActive],
     });
 
-    const { error } = await supabase.from("coupons").upsert({
-      code: normalizedCode,
-      discount_percent: discount,
-      active: couponActive,
-    });
-
-    if (error) {
-      showNotice(error.message, "error");
-      return;
-    }
-
-    setCoupons((current) => {
-      const exists = current.some((coupon) => coupon.code === normalizedCode);
-
-      if (exists) {
-        return current.map((coupon) =>
-          coupon.code === normalizedCode
-            ? {
-                ...coupon,
-                discount_percent: discount,
-                active: couponActive,
-              }
-            : coupon
-        );
-      }
-
-      return [
+    const { data: savedCoupon, error: couponSaveError } = await supabase
+      .from("coupons")
+      .upsert(
         {
-          id: normalizedCode,
           code: normalizedCode,
           discount_percent: discount,
           active: couponActive,
+          updated_at: new Date().toISOString(),
         },
-        ...current,
-      ];
-    });
+        {
+          onConflict: "code",
+        }
+      )
+      .select()
+      .single();
+
+    if (couponSaveError) {
+      showNotice(couponSaveError.message, "error");
+      return;
+    }
+
+    setCoupons((current) => [
+      savedCoupon,
+      ...current.filter((coupon) => coupon.code !== normalizedCode),
+    ]);
 
     setCouponInput("");
     setDiscountInput("");
     setCouponActive(true);
 
-    showNotice("Coupon updated successfully.", "success");
+    showNotice(
+      couponActive
+        ? "Coupon activated successfully."
+        : "Coupon inactivated successfully.",
+      "success"
+    );
   } catch (error) {
     console.error(error);
     showNotice("Failed to save coupon.", "error");
@@ -286,7 +280,7 @@ const loadCoupons = async () => {
   const { data } = await supabase
     .from("coupons")
     .select("*")
-    .order("created_at", { ascending: false });
+    .order("updated_at", { ascending: false });
 
   setCoupons(data || []);
 };

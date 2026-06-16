@@ -5,8 +5,8 @@ import { sepolia } from "viem/chains";
 import { CELESTOR_VAULT_ABI } from "../../../lib/contracts/CelestorVaultABI";
 import { CELESTOR_LOAD_ABI } from "../../../lib/contracts/CelestorLoadABI";
 import {
-  CardInventoryRecord,
   formatMaskedCardDetails,
+  type CardInventoryRecord,
 } from "../../../lib/cardInventory";
 
 const supabaseAdmin = createClient(
@@ -32,18 +32,20 @@ const publicClient = createPublicClient({
   transport: http(),
 });
 
+type CardType = "virtual" | "physical" | "free";
+
 type CardRecord = {
   id: string;
   user_id: string;
   order_id: string;
-  card_type: "virtual" | "physical" | "free" | string;
+  card_type: CardType | string;
   status: string;
   telegram_code: string;
   token_id: string | null;
   wallet_address: string;
   tx_hash: string | null;
   created_at: string;
-  telegram_active?: boolean;
+  telegram_active?: boolean | null;
   card_holder_name?: string | null;
   card_inventory_id?: string | null;
   card_inventory?: CardInventoryRecord | CardInventoryRecord[] | null;
@@ -78,6 +80,12 @@ const getInventory = (card: CardRecord) => {
   }
 
   return card.card_inventory || null;
+};
+
+const getCardTypeLabel = (cardType: string) => {
+  if (cardType === "physical") return "Physical";
+  if (cardType === "free") return "Free";
+  return "Virtual";
 };
 
 const formatTelegramCardDetails = (
@@ -234,6 +242,112 @@ export async function POST(req: Request) {
       return (await getCardByOrderId(card.order_id)) || card;
     };
 
+    const getLinkedWalletForChat = async (chatId: number) => {
+      const { data, error } = await supabaseAdmin
+        .from("telegram_wallet_links")
+        .select("wallet_address")
+        .eq("telegram_chat_id", String(chatId))
+        .maybeSingle();
+
+      if (error) {
+        console.error("Telegram wallet link lookup failed:", error);
+        return null;
+      }
+
+      return data?.wallet_address || null;
+    };
+
+    const linkTelegramChatToWallet = async (
+      chatId: number,
+      walletAddress: string
+    ) => {
+      const normalizedWallet = walletAddress.toLowerCase();
+
+      const { data: existingChatLink, error: existingChatError } =
+        await supabaseAdmin
+          .from("telegram_wallet_links")
+          .select("wallet_address")
+          .eq("telegram_chat_id", String(chatId))
+          .maybeSingle();
+
+      if (existingChatError) {
+        console.error("Telegram chat link lookup failed:", existingChatError);
+
+        return {
+          ok: false,
+          message: "Could not verify this Telegram account. Please try again.",
+        };
+      }
+
+      if (
+        existingChatLink?.wallet_address &&
+        existingChatLink.wallet_address.toLowerCase() !== normalizedWallet
+      ) {
+        return {
+          ok: false,
+          message:
+            "This Telegram account is already linked to another wallet. Please use a card code from the same wallet.",
+        };
+      }
+
+      const { data: existingWalletLink, error: existingWalletError } =
+        await supabaseAdmin
+          .from("telegram_wallet_links")
+          .select("telegram_chat_id")
+          .ilike("wallet_address", normalizedWallet)
+          .maybeSingle();
+
+      if (existingWalletError) {
+        console.error(
+          "Telegram wallet reverse lookup failed:",
+          existingWalletError
+        );
+
+        return {
+          ok: false,
+          message: "Could not verify this wallet. Please try again.",
+        };
+      }
+
+      if (
+        existingWalletLink?.telegram_chat_id &&
+        existingWalletLink.telegram_chat_id !== String(chatId)
+      ) {
+        return {
+          ok: false,
+          message: "This wallet is already linked to another Telegram account.",
+        };
+      }
+
+      const { error: upsertError } = await supabaseAdmin
+        .from("telegram_wallet_links")
+        .upsert(
+          {
+            telegram_chat_id: String(chatId),
+            wallet_address: normalizedWallet,
+            verified_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+          {
+            onConflict: "telegram_chat_id",
+          }
+        );
+
+      if (upsertError) {
+        console.error("Telegram wallet link failed:", upsertError);
+
+        return {
+          ok: false,
+          message: "Could not link this Telegram account to your wallet.",
+        };
+      }
+
+      return {
+        ok: true,
+        message: "",
+      };
+    };
+
     const getHolderName = async (card: CardRecord) => {
       if (card.card_holder_name) {
         return card.card_holder_name;
@@ -260,17 +374,22 @@ export async function POST(req: Request) {
       return profile?.full_name || "Celestor User";
     };
 
-    const getVerifiedCardsForChat = async (
+    const getCardsForLinkedWallet = async (
       chatId: number,
-      cardType?: "virtual" | "physical" | "free"
+      cardType?: CardType
     ) => {
+      const linkedWallet = await getLinkedWalletForChat(chatId);
+
+      if (!linkedWallet) {
+        return [] as CardRecord[];
+      }
+
       let query = supabaseAdmin
         .from("cards")
         .select(CARD_SELECT)
-        .eq("telegram_chat_id", String(chatId))
-        .eq("telegram_verified", true)
+        .ilike("wallet_address", linkedWallet.toLowerCase())
         .order("created_at", { ascending: false })
-        .limit(20);
+        .limit(50);
 
       if (cardType) {
         query = query.eq("card_type", cardType);
@@ -279,7 +398,7 @@ export async function POST(req: Request) {
       const { data, error } = await query;
 
       if (error) {
-        console.error("Card lookup failed:", error);
+        console.error("Linked wallet card lookup failed:", error);
         return [] as CardRecord[];
       }
 
@@ -315,7 +434,9 @@ export async function POST(req: Request) {
         })
       );
 
-      const visibleMessages = cardMessages.filter(Boolean);
+      const visibleMessages = cardMessages.filter(
+        (message): message is string => Boolean(message)
+      );
 
       if (visibleMessages.length === 0) {
         await sendMessage(
@@ -372,6 +493,17 @@ export async function POST(req: Request) {
       if (data === "my_cards" || data === "my_card") {
         await answerCallbackQuery(callback.id);
 
+        const linkedWallet = await getLinkedWalletForChat(chatId);
+
+        if (!linkedWallet) {
+          await sendMessage(
+            chatId,
+            "Send your Telegram Access Code first to link your wallet."
+          );
+
+          return NextResponse.json({ ok: true });
+        }
+
         await sendMessage(
           chatId,
           "Choose which Celestor card type you want to view:",
@@ -384,12 +516,12 @@ export async function POST(req: Request) {
       if (data === "cards_virtual") {
         await answerCallbackQuery(callback.id);
 
-        const cards = await getVerifiedCardsForChat(chatId, "virtual");
+        const cards = await getCardsForLinkedWallet(chatId, "virtual");
 
         await sendCardList(
           chatId,
           cards,
-          "No verified Virtual Cards found for this Telegram chat."
+          "No Virtual Cards found for your linked wallet."
         );
 
         return NextResponse.json({ ok: true });
@@ -398,12 +530,12 @@ export async function POST(req: Request) {
       if (data === "cards_physical") {
         await answerCallbackQuery(callback.id);
 
-        const cards = await getVerifiedCardsForChat(chatId, "physical");
+        const cards = await getCardsForLinkedWallet(chatId, "physical");
 
         await sendCardList(
           chatId,
           cards,
-          "No verified Physical Cards found for this Telegram chat."
+          "No Physical Cards found for your linked wallet."
         );
 
         return NextResponse.json({ ok: true });
@@ -412,12 +544,12 @@ export async function POST(req: Request) {
       if (data === "cards_free") {
         await answerCallbackQuery(callback.id);
 
-        const cards = await getVerifiedCardsForChat(chatId, "free");
+        const cards = await getCardsForLinkedWallet(chatId, "free");
 
         await sendCardList(
           chatId,
           cards,
-          "No verified Free Card found for this Telegram chat."
+          "No Free Card found for your linked wallet."
         );
 
         return NextResponse.json({ ok: true });
@@ -435,33 +567,12 @@ export async function POST(req: Request) {
           return NextResponse.json({ ok: true });
         }
 
-        const { data: activeCards, error: activeCardsError } =
-          await supabaseAdmin
-            .from("cards")
-            .select(CARD_SELECT)
-            .eq("telegram_chat_id", String(chatId))
-            .eq("telegram_verified", true)
-            .eq("telegram_active", true)
-            .order("created_at", { ascending: false })
-            .limit(10);
-
-        if (activeCardsError) {
-          console.error("Active card lookup failed:", activeCardsError);
-
-          await sendMessage(
-            chatId,
-            "❌ Could not load your active card. Please try again."
-          );
-
-          return NextResponse.json({ ok: true });
-        }
-
-        const cards = (activeCards || []) as CardRecord[];
+        const cards = await getCardsForLinkedWallet(chatId);
 
         if (cards.length === 0) {
           await sendMessage(
             chatId,
-            "💰 No active card found for this Telegram chat.\n\nSend your Telegram Access Code first, then tap Balance again."
+            "💰 No linked wallet found or no cards found for this wallet.\n\nSend your Telegram Access Code first, then tap Balance again."
           );
 
           return NextResponse.json({ ok: true });
@@ -471,7 +582,7 @@ export async function POST(req: Request) {
           cards.map(async (card, index) => {
             if (!card.token_id) {
               return `Card ${index + 1}
-Type: ${card.card_type === "free" ? "Free" : card.card_type}
+Type: ${getCardTypeLabel(card.card_type)}
 Balance: Pending`;
             }
 
@@ -515,13 +626,13 @@ First Reload Bonus: ${firstReloadBonusUsed ? "Used" : "Available"}`;
               });
 
               return `Card ${index + 1}
-Type: ${card.card_type === "physical" ? "Physical" : "Virtual"}
+Type: ${getCardTypeLabel(card.card_type)}
 Balance: ${formatEther(rawBalance as bigint)} ETH`;
             } catch (error) {
               console.error("Balance read failed:", error);
 
               return `Card ${index + 1}
-Type: ${card.card_type}
+Type: ${getCardTypeLabel(card.card_type)}
 Balance: Could not read balance`;
             }
           })
@@ -572,7 +683,7 @@ Balance: Could not read balance`;
       console.error("Telegram code lookup failed:", codeError);
 
       await reply(
-        "❌ Could not verify this Telegram Access Code. Please try again."
+        "❌ Access Not Verified\n\nCould not verify this Telegram Access Code. Please try again."
       );
 
       return NextResponse.json({ ok: true });
@@ -580,7 +691,7 @@ Balance: Could not read balance`;
 
     if (!matchingCards || matchingCards.length === 0) {
       await reply(
-        "❌ Invalid Telegram Access Code.\n\nPlease check your order email and try again."
+        "❌ Access Not Verified\n\nInvalid Telegram Access Code. Please check your order email and try again."
       );
 
       return NextResponse.json({ ok: true });
@@ -588,34 +699,47 @@ Balance: Could not read balance`;
 
     const primaryCard = matchingCards[0] as CardRecord;
 
+    const walletLink = await linkTelegramChatToWallet(
+      chatId,
+      primaryCard.wallet_address
+    );
+
+    if (!walletLink.ok) {
+      await reply(`❌ Access Not Verified\n\n${walletLink.message}`);
+      return NextResponse.json({ ok: true });
+    }
+
     await assignInventoryToOrder(primaryCard.order_id);
 
-    await supabaseAdmin
-      .from("cards")
-      .update({
-        telegram_active: false,
-      })
-      .eq("telegram_chat_id", String(chatId));
-
-    const { error: verifyError } = await supabaseAdmin
+    const { error: verifyWalletCardsError } = await supabaseAdmin
       .from("cards")
       .update({
         telegram_verified: true,
         telegram_verified_at: new Date().toISOString(),
         telegram_chat_id: String(chatId),
-        telegram_active: true,
+        telegram_active: false,
       })
-      .eq("id", primaryCard.id);
+      .ilike("wallet_address", primaryCard.wallet_address.toLowerCase());
 
-    if (verifyError) {
-      console.error("Telegram verification update failed:", verifyError);
+    if (verifyWalletCardsError) {
+      console.error(
+        "Telegram wallet card verification update failed:",
+        verifyWalletCardsError
+      );
 
       await reply(
-        "❌ Could not link this Telegram chat to your card. Please try again."
+        "❌ Access Not Verified\n\nCould not link this Telegram chat to your wallet. Please try again."
       );
 
       return NextResponse.json({ ok: true });
     }
+
+    await supabaseAdmin
+      .from("cards")
+      .update({
+        telegram_active: true,
+      })
+      .eq("id", primaryCard.id);
 
     const verifiedCard =
       (await getCardByOrderId(primaryCard.order_id)) || primaryCard;

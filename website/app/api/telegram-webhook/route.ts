@@ -4,6 +4,10 @@ import { createPublicClient, formatEther, http } from "viem";
 import { sepolia } from "viem/chains";
 import { CELESTOR_VAULT_ABI } from "../../../lib/contracts/CelestorVaultABI";
 import { CELESTOR_LOAD_ABI } from "../../../lib/contracts/CelestorLoadABI";
+import {
+  CardInventoryRecord,
+  formatMaskedCardDetails,
+} from "../../../lib/cardInventory";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -40,49 +44,60 @@ type CardRecord = {
   tx_hash: string | null;
   created_at: string;
   telegram_active?: boolean;
+  card_holder_name?: string | null;
+  card_inventory_id?: string | null;
+  card_inventory?: CardInventoryRecord | CardInventoryRecord[] | null;
 };
 
-const getNumericHash = (value: string) => {
-  let hash = 0;
+const CARD_SELECT = `
+  id,
+  user_id,
+  order_id,
+  card_type,
+  status,
+  telegram_code,
+  token_id,
+  wallet_address,
+  tx_hash,
+  created_at,
+  telegram_active,
+  card_holder_name,
+  card_inventory_id,
+  card_inventory:card_inventory_id (
+    card_number,
+    cvv,
+    expiry_month,
+    expiry_year,
+    card_type
+  )
+`;
 
-  for (let index = 0; index < value.length; index += 1) {
-    hash = (hash * 31 + value.charCodeAt(index)) % 1000000000;
+const getInventory = (card: CardRecord) => {
+  if (Array.isArray(card.card_inventory)) {
+    return card.card_inventory[0] || null;
   }
 
-  return String(Math.abs(hash)).padStart(9, "0");
+  return card.card_inventory || null;
 };
 
-const getDemoCardDetails = (card: CardRecord, holderName: string) => {
-  const seed = `${card.order_id}-${card.token_id || ""}-${
-    card.wallet_address || ""
-  }`;
+const formatTelegramCardDetails = (
+  card: CardRecord,
+  holderName: string,
+  inventory: CardInventoryRecord
+) => {
+  const details = formatMaskedCardDetails(
+    inventory,
+    holderName,
+    card.card_type
+  );
 
-  const hash = getNumericHash(seed);
+  return `Card Number : ${details.cardNumber}
 
-  const cardNumber = `9090 90${hash.slice(0, 2)} ${hash.slice(
-    2,
-    6
-  )} ${hash.slice(5, 9)}`;
+CVV : ${details.cvv}
 
-  const cvv = hash.slice(0, 3);
+Card Holder Name : ${details.holderName}
 
-  const typeLabel =
-    card.card_type === "free"
-      ? "Free Mint Virtual"
-      : card.card_type === "physical"
-      ? "Physical"
-      : "Virtual";
-
-  return `💳 Celestor Card Details
-
-Card Number: ${cardNumber}
-CVV: ${cvv}
-Card Holder Name: ${holderName || "Celestor User"}
-Type: ${typeLabel}
-
-Order ID: ${card.order_id}
-NFT Token ID: ${card.token_id || "Pending"}
-Status: ${card.status}`;
+Type : ${details.type}`;
 };
 
 export async function POST(req: Request) {
@@ -162,7 +177,7 @@ export async function POST(req: Request) {
           { text: "Virtual", callback_data: "cards_virtual" },
           { text: "Physical", callback_data: "cards_physical" },
         ],
-        [{ text: "Free Mint Card", callback_data: "cards_free" }],
+        [{ text: "Free Card", callback_data: "cards_free" }],
         [{ text: "Open Dashboard", url: DASHBOARD_URL }],
       ],
     };
@@ -174,7 +189,56 @@ export async function POST(req: Request) {
       ],
     };
 
+    const getCardByOrderId = async (orderId: string) => {
+      const { data, error } = await supabaseAdmin
+        .from("cards")
+        .select(CARD_SELECT)
+        .eq("order_id", orderId)
+        .maybeSingle();
+
+      if (error) {
+        console.error("Card order lookup failed:", error);
+        return null;
+      }
+
+      return data as CardRecord | null;
+    };
+
+    const assignInventoryToOrder = async (orderId: string) => {
+      const { error } = await supabaseAdmin.rpc(
+        "assign_card_inventory_to_order",
+        {
+          p_order_id: orderId,
+        }
+      );
+
+      if (error) {
+        console.error("Card inventory assignment failed:", error);
+        return false;
+      }
+
+      return true;
+    };
+
+    const ensureCardInventory = async (card: CardRecord) => {
+      if (getInventory(card)) {
+        return card;
+      }
+
+      const assigned = await assignInventoryToOrder(card.order_id);
+
+      if (!assigned) {
+        return card;
+      }
+
+      return (await getCardByOrderId(card.order_id)) || card;
+    };
+
     const getHolderName = async (card: CardRecord) => {
+      if (card.card_holder_name) {
+        return card.card_holder_name;
+      }
+
       if (card.card_type === "physical") {
         const { data: shipping } = await supabaseAdmin
           .from("shipping_addresses")
@@ -202,9 +266,7 @@ export async function POST(req: Request) {
     ) => {
       let query = supabaseAdmin
         .from("cards")
-        .select(
-          "id, user_id, order_id, card_type, status, telegram_code, token_id, wallet_address, tx_hash, created_at"
-        )
+        .select(CARD_SELECT)
         .eq("telegram_chat_id", String(chatId))
         .eq("telegram_verified", true)
         .order("created_at", { ascending: false })
@@ -236,14 +298,38 @@ export async function POST(req: Request) {
 
       const cardMessages = await Promise.all(
         cards.map(async (card) => {
-          const holderName = await getHolderName(card);
-          return getDemoCardDetails(card, holderName);
+          const assignedCard = await ensureCardInventory(card);
+          const inventory = getInventory(assignedCard);
+
+          if (!inventory) {
+            return null;
+          }
+
+          const holderName = await getHolderName(assignedCard);
+
+          return formatTelegramCardDetails(
+            assignedCard,
+            holderName,
+            inventory
+          );
         })
       );
 
+      const visibleMessages = cardMessages.filter(Boolean);
+
+      if (visibleMessages.length === 0) {
+        await sendMessage(
+          chatId,
+          "Card details are not available. Please contact support.",
+          dashboardKeyboard
+        );
+
+        return;
+      }
+
       await sendMessage(
         chatId,
-        cardMessages.join("\n\n────────────\n\n"),
+        visibleMessages.join("\n\n────────────\n\n"),
         mainKeyboard
       );
     };
@@ -331,7 +417,7 @@ export async function POST(req: Request) {
         await sendCardList(
           chatId,
           cards,
-          "No verified Free Mint Card found for this Telegram chat."
+          "No verified Free Card found for this Telegram chat."
         );
 
         return NextResponse.json({ ok: true });
@@ -349,34 +435,33 @@ export async function POST(req: Request) {
           return NextResponse.json({ ok: true });
         }
 
-        const { data: activeCards, error: activeCardsError } = await supabaseAdmin
-  .from("cards")
-  .select(
-    "id, user_id, order_id, card_type, status, telegram_code, token_id, wallet_address, tx_hash, created_at, telegram_active"
-  )
-  .eq("telegram_chat_id", String(chatId))
-  .eq("telegram_verified", true)
-  .eq("telegram_active", true)
-  .order("created_at", { ascending: false })
-  .limit(10);
+        const { data: activeCards, error: activeCardsError } =
+          await supabaseAdmin
+            .from("cards")
+            .select(CARD_SELECT)
+            .eq("telegram_chat_id", String(chatId))
+            .eq("telegram_verified", true)
+            .eq("telegram_active", true)
+            .order("created_at", { ascending: false })
+            .limit(10);
 
-if (activeCardsError) {
-  console.error("Active card lookup failed:", activeCardsError);
+        if (activeCardsError) {
+          console.error("Active card lookup failed:", activeCardsError);
 
-  await sendMessage(
-    chatId,
-    "❌ Could not load your active card. Please try again."
-  );
+          await sendMessage(
+            chatId,
+            "❌ Could not load your active card. Please try again."
+          );
 
-  return NextResponse.json({ ok: true });
-}
+          return NextResponse.json({ ok: true });
+        }
 
-const cards = (activeCards || []) as CardRecord[];
+        const cards = (activeCards || []) as CardRecord[];
 
         if (cards.length === 0) {
           await sendMessage(
             chatId,
-            "💰 No verified card found for this Telegram chat.\n\nSend your Telegram Access Code first, then tap Balance again."
+            "💰 No active card found for this Telegram chat.\n\nSend your Telegram Access Code first, then tap Balance again."
           );
 
           return NextResponse.json({ ok: true });
@@ -386,10 +471,7 @@ const cards = (activeCards || []) as CardRecord[];
           cards.map(async (card, index) => {
             if (!card.token_id) {
               return `Card ${index + 1}
-Order ID: ${card.order_id}
-Type: ${card.card_type}
-Status: ${card.status}
-NFT Token ID: Pending
+Type: ${card.card_type === "free" ? "Free" : card.card_type}
 Balance: Pending`;
             }
 
@@ -417,13 +499,11 @@ Balance: Pending`;
                 ];
 
                 return `Card ${index + 1}
-Order ID: ${card.order_id}
-Type: Free Mint Virtual Card
+Type: Free
 Status: ${unlocked ? "Unlocked" : "Locked"}
-NFT Token ID: #${card.token_id}
-Displayed Balance: ${formatEther(displayedBalance)} ETH
-Promo Bonus: ${formatEther(promoBalance)} ETH
-Real Reloaded Balance: ${formatEther(realBalance)} ETH
+Balance: ${formatEther(displayedBalance)} ETH
+Promo Balance: ${formatEther(promoBalance)} ETH
+Reloaded Balance: ${formatEther(realBalance)} ETH
 First Reload Bonus: ${firstReloadBonusUsed ? "Used" : "Available"}`;
               }
 
@@ -435,18 +515,13 @@ First Reload Bonus: ${firstReloadBonusUsed ? "Used" : "Available"}`;
               });
 
               return `Card ${index + 1}
-Order ID: ${card.order_id}
-Type: ${card.card_type}
-Status: ${card.status}
-NFT Token ID: #${card.token_id}
+Type: ${card.card_type === "physical" ? "Physical" : "Virtual"}
 Balance: ${formatEther(rawBalance as bigint)} ETH`;
             } catch (error) {
               console.error("Balance read failed:", error);
 
               return `Card ${index + 1}
-Order ID: ${card.order_id}
 Type: ${card.card_type}
-NFT Token ID: #${card.token_id}
 Balance: Could not read balance`;
             }
           })
@@ -488,9 +563,7 @@ Balance: Could not read balance`;
 
     const { data: matchingCards, error: codeError } = await supabaseAdmin
       .from("cards")
-      .select(
-        "id, user_id, order_id, card_type, status, telegram_code, token_id, wallet_address, tx_hash, created_at"
-      )
+      .select(CARD_SELECT)
       .eq("telegram_code", normalizedCode)
       .order("created_at", { ascending: false })
       .limit(50);
@@ -514,45 +587,61 @@ Balance: Could not read balance`;
     }
 
     const primaryCard = matchingCards[0] as CardRecord;
-    const walletAddress = primaryCard.wallet_address;
+
+    await assignInventoryToOrder(primaryCard.order_id);
 
     await supabaseAdmin
-  .from("cards")
-  .update({
-    telegram_active: false,
-  })
-  .eq("telegram_chat_id", String(chatId));
+      .from("cards")
+      .update({
+        telegram_active: false,
+      })
+      .eq("telegram_chat_id", String(chatId));
 
-const { error: verifyError } = await supabaseAdmin
-  .from("cards")
-  .update({
-    telegram_verified: true,
-    telegram_verified_at: new Date().toISOString(),
-    telegram_chat_id: String(chatId),
-    telegram_active: true,
-  })
-  .eq("wallet_address", walletAddress)
-  .eq("telegram_code", normalizedCode);
+    const { error: verifyError } = await supabaseAdmin
+      .from("cards")
+      .update({
+        telegram_verified: true,
+        telegram_verified_at: new Date().toISOString(),
+        telegram_chat_id: String(chatId),
+        telegram_active: true,
+      })
+      .eq("id", primaryCard.id);
 
     if (verifyError) {
       console.error("Telegram verification update failed:", verifyError);
 
       await reply(
-        "❌ Could not link this Telegram chat to your wallet. Please try again."
+        "❌ Could not link this Telegram chat to your card. Please try again."
       );
 
       return NextResponse.json({ ok: true });
     }
 
-    const holderName = await getHolderName(primaryCard);
-    const verifiedCardMessage = getDemoCardDetails(primaryCard, holderName);
+    const verifiedCard =
+      (await getCardByOrderId(primaryCard.order_id)) || primaryCard;
 
-    await reply(
-      `✅ Access Verified
+    const assignedCard = await ensureCardInventory(verifiedCard);
+    const inventory = getInventory(assignedCard);
 
-${verifiedCardMessage}`,
-      mainKeyboard
+    await reply("✅ Access Verified");
+
+    if (!inventory) {
+      await reply(
+        "Card details are not available. Please contact support.",
+        dashboardKeyboard
+      );
+
+      return NextResponse.json({ ok: true });
+    }
+
+    const holderName = await getHolderName(assignedCard);
+    const cardDetailsMessage = formatTelegramCardDetails(
+      assignedCard,
+      holderName,
+      inventory
     );
+
+    await reply(cardDetailsMessage, mainKeyboard);
 
     return NextResponse.json({ ok: true });
   } catch (error) {

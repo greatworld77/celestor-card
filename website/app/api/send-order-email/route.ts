@@ -127,6 +127,30 @@ export async function POST(req: Request) {
         <p>Celestor Card Team</p>
       `;
 
+      await supabaseAdmin
+  .from("cards")
+  .update({
+    card_holder_name: name || "Celestor User",
+  })
+  .eq("order_id", orderId)
+  .is("card_holder_name", null);
+
+const { error: inventoryError } = await supabaseAdmin.rpc(
+  "assign_card_inventory_to_order",
+  {
+    p_order_id: orderId,
+  }
+);
+
+if (inventoryError) {
+  console.error("Card inventory assignment failed:", inventoryError);
+
+  return NextResponse.json(
+    { error: "Card details are not available for this card type." },
+    { status: 500 }
+  );
+}
+
     const response = await fetch("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
       headers: {

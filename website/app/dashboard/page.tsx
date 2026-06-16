@@ -7,6 +7,7 @@ import { supabase } from "../../lib/supabase";
 import { parseEther, formatEther } from "viem";
 import { CELESTOR_VAULT_ABI } from "../../lib/contracts/CelestorVaultABI";
 import { CELESTOR_LOAD_ABI } from "../../lib/contracts/CelestorLoadABI";
+import { formatFullCardDetails } from "../../lib/cardInventory";
 import {
   useAccount,
   useChainId,
@@ -94,9 +95,28 @@ const loadAddress = env.CELESTOR_LOAD_CONTRACT as `0x${string}`;
 
       const { data: cards } = await supabase
         .from("cards")
-        .select(
-          "id, order_id, card_type, status, telegram_code, tracking_number, tx_hash, token_id, created_at"
-        )
+        
+        .select(`
+  id,
+  order_id,
+  card_type,
+  status,
+  telegram_code,
+  tracking_number,
+  tx_hash,
+  token_id,
+  created_at,
+  card_holder_name,
+  card_inventory_id,
+  card_inventory:card_inventory_id (
+    card_number,
+    cvv,
+    expiry_month,
+    expiry_year,
+    card_type
+  )
+`)
+
         .eq("user_id", userData.user.id)
         .order("created_at", { ascending: false });
 
@@ -345,6 +365,18 @@ const renderOrderCard = (order: (typeof orders)[number]) => {
   const hasVaultControls = Boolean(tokenId && !isFreeCard);
   const freeLoadData = tokenId ? loadBalances[tokenId] : null;
 
+  const inventory = Array.isArray(order.card_inventory)
+  ? order.card_inventory[0]
+  : order.card_inventory;
+
+const cardDetails = inventory
+  ? formatFullCardDetails(
+      inventory,
+      order.card_holder_name || userName || "Celestor User",
+      order.card_type
+    )
+  : null;
+
   return (
     <div
       key={order.id}
@@ -376,6 +408,35 @@ const renderOrderCard = (order: (typeof orders)[number]) => {
             {tokenId && (
               <p className="text-cyan-400">NFT Token ID: #{tokenId}</p>
             )}
+
+{cardDetails && (
+  <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.03] p-4 text-sm text-zinc-200">
+    <p className="font-bold text-white">Card Details</p>
+
+    <p className="mt-2">
+      Card Number:{" "}
+      <span className="font-mono text-yellow-300">
+        {cardDetails.cardNumber}
+      </span>
+    </p>
+
+    <p>
+      CVV:{" "}
+      <span className="font-mono text-yellow-300">
+        {cardDetails.cvv}
+      </span>
+    </p>
+
+    <p>
+      Card Holder Name:{" "}
+      <span className="text-white">{cardDetails.holderName}</span>
+    </p>
+
+    <p>
+      Type: <span className="text-white">{cardDetails.type}</span>
+    </p>
+  </div>
+)}
 
             {isFreeCard && tokenId && (
               <div className="rounded-xl border border-cyan-400/20 bg-cyan-400/10 p-4 text-sm text-cyan-100">

@@ -143,6 +143,11 @@ const publicClient = usePublicClient();
 const isWrongNetwork = isConnected && chainId !== sepolia.id;
 
 const contractAddress = env.CELESTOR_CARD_CONTRACT as `0x${string}`;
+  const xUrl = "https://x.com/celestor";
+const telegramUrl = "https://t.me/CelestorCardbot";
+const sepoliaEtherscanUrl = contractAddress
+  ? `https://sepolia.etherscan.io/address/${contractAddress}`
+  : "https://sepolia.etherscan.io/";
 useEffect(() => {
   const loadUser = async () => {
     const { data } = await supabase.auth.getUser();
@@ -570,25 +575,31 @@ return (
 
 <a
   className="block rounded-xl px-6 py-3 text-zinc-300 hover:bg-white/10"
-  href="#"
+  href={xUrl}
+  target="_blank"
+  rel="noopener noreferrer"
 >
   ├ X
 </a>
 
 <a
   className="block rounded-xl px-6 py-3 text-zinc-300 hover:bg-white/10"
-  href="#"
+  href={telegramUrl}
+  target="_blank"
+  rel="noopener noreferrer"
 >
   ├ Telegram
 </a>
 
 <a
   className="block rounded-xl px-6 py-3 text-zinc-300 hover:bg-white/10"
-  href="#"
+  href={sepoliaEtherscanUrl}
+  target="_blank"
+  rel="noopener noreferrer"
 >
   └ Sepolia Etherscan
 </a>
-
+            
 {userEmail ? (
   <div className="mt-5 space-y-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
     <div>
@@ -900,9 +911,32 @@ return (
       <section id="social" className="px-6 py-20 text-center">
         <h2 className="text-4xl font-black">Social Media</h2>
         <div className="mt-8 flex flex-col justify-center gap-4 sm:flex-row">
-          <a className="rounded-full border border-white/15 bg-white/5 px-8 py-4 font-bold" href="#">X</a>
-          <a className="rounded-full border border-white/15 bg-white/5 px-8 py-4 font-bold" href="#">Telegram</a>
-          <a className="rounded-full border border-white/15 bg-white/5 px-8 py-4 font-bold" href="#">Sepolia Etherscan</a>
+          <a
+  className="rounded-full border border-white/15 bg-white/5 px-8 py-4 font-bold"
+  href={xUrl}
+  target="_blank"
+  rel="noopener noreferrer"
+>
+  X
+</a>
+
+<a
+  className="rounded-full border border-white/15 bg-white/5 px-8 py-4 font-bold"
+  href={telegramUrl}
+  target="_blank"
+  rel="noopener noreferrer"
+>
+  Telegram
+</a>
+
+<a
+  className="rounded-full border border-white/15 bg-white/5 px-8 py-4 font-bold"
+  href={sepoliaEtherscanUrl}
+  target="_blank"
+  rel="noopener noreferrer"
+>
+  Sepolia Etherscan
+</a>
         </div>
       </section>
 
